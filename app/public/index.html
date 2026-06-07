@@ -89,7 +89,32 @@
   .mstat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px}
   .mstat .k{color:var(--dim);font-size:11px;text-transform:uppercase}
   .mstat .v{font-size:20px;font-weight:800;margin-top:4px}
+  html,body{overflow-x:hidden}
+  .topbar{flex-wrap:wrap;gap:8px}
+  .topbar>div{flex-wrap:wrap;justify-content:flex-end}
   @media(max-width:720px){.stats{grid-template-columns:repeat(2,1fr)}.hero h1{font-size:24px}}
+  @media(max-width:560px){
+    .topbar{padding:10px 13px}
+    .chip{display:none}                 /* hide cluster/updated chips on phones */
+    .brand{font-size:15px}
+    .logo{width:26px;height:26px;border-radius:8px}
+    .btn{padding:9px 12px;font-size:13px}
+    #createBtn{padding:9px 11px}
+    .wrap{padding:16px 13px 48px}
+    .hero h1{font-size:20px;letter-spacing:-.3px}
+    .hero p{font-size:13px}
+    .stats{gap:9px}
+    .stat{padding:13px 13px;border-radius:13px}
+    .stat .v{font-size:21px}
+    .grid{grid-template-columns:1fr}
+    .hc-head{flex-wrap:wrap;gap:8px}
+    .hc-head>div:last-child{flex-wrap:wrap}
+    svg.chart{height:150px}
+    .sheet{padding:18px;border-radius:16px}
+    .mstats{grid-template-columns:repeat(3,1fr);gap:7px}
+    .mstat .v{font-size:16px}
+    .nav{font-size:32px}
+  }
 </style>
 </head>
 <body>
@@ -99,7 +124,7 @@
     <span class="chip" id="cluster">…</span>
     <span class="chip" id="updated">…</span>
     <button class="btn ghost" id="createBtn">+ Create</button>
-    <button class="btn" id="connect">Connect Wallet</button>
+    <button class="btn" id="connect">Connect</button>
   </div>
 </div>
 
