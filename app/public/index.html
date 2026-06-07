@@ -797,6 +797,19 @@ async function readBal(mint){
     return BigInt(b.value.amount);
   }catch(_){return 0n;}
 }
+// Program-agnostic balance for an LP mint (could be SPL Token OR Token-2022,
+// and the ATA may lag indexing) — checks both ATAs and falls back to a scan.
+async function readLpBal(mint){
+  const pk=new PublicKey(mint);
+  for(const prog of [TOKEN_PROGRAM_ID,TOKEN_2022_PROGRAM_ID]){
+    try{const ata=getAssociatedTokenAddressSync(pk,wallet,false,prog);
+      const b=await conn.getTokenAccountBalance(ata);
+      if(b&&b.value&&BigInt(b.value.amount)>0n)return BigInt(b.value.amount);}catch(_){}
+  }
+  try{const r=await conn.getParsedTokenAccountsByOwner(wallet,{mint:pk});
+    let s=0n;for(const a of r.value)s+=BigInt(a.account.data.parsed.info.tokenAmount.amount);return s;}catch(_){}
+  return 0n;
+}
 async function readWrappedBal(wm){
   try{
     const ata=getAssociatedTokenAddressSync(new PublicKey(wm),wallet,true,TOKEN_2022_PROGRAM_ID);
@@ -863,8 +876,9 @@ async function zapInFlow(){
       await fireUntilLanded(signed[i],bundle.steps[i].label);
     }
     const lpMint=bundle.lpMint;
-    let lpBal=lpMint?await readBal(lpMint):0n;
-    for(let i=0;i<5&&lpBal===0n;i++){await new Promise(r=>setTimeout(r,2000));lpBal=lpMint?await readBal(lpMint):0n;}
+    zStatus('Deposit landed. Detecting LP…');
+    let lpBal=lpMint?await readLpBal(lpMint):0n;
+    for(let i=0;i<14&&lpBal===0n;i++){await new Promise(r=>setTimeout(r,2500));lpBal=lpMint?await readLpBal(lpMint):0n;}
     if(lpBal>0n){
       zStatus('Deposit landed. Wrapping LP → shares…');
       const wr=await zPost('/api/zap/wrap',{owner,mintA,mintB,lpMint,lpAmount:lpBal.toString()});
