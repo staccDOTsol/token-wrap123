@@ -906,8 +906,12 @@ async function zapBundle(req, res) {
     if (mintB === WSOL) { txs.push({ label: 'Wrap SOL (B)', tx: await buildV0(web3, conn, ownerPk, wrapSolIxs(ctx, ownerPk, otherHalf)) }); amountB = String(otherHalf); }
     else { const q = await jupQuote({ inputMint: WSOL, outputMint: mintB, amount: otherHalf }); txs.push({ label: 'Swap SOL→B', b64: await jupSwapTx({ quoteResponse: q, userPublicKey: owner }) }); amountB = q.otherAmountThreshold || q.outAmount; }
     // Deposit (uses conservative min-out amounts so it can't over-spend post-swap)
-    const dep = await found.amm.buildDeposit(ctx, found.pool, owner, amountA, amountB);
-    const tip = jitoTipIx(web3, ownerPk, tipLamports ? Number(tipLamports) : 100000);
+    // Deposit slightly less than the realized amounts so the ATOMIC deposit
+    // can't fail simulation on a swap slippage shortfall (leaves tiny dust).
+    const depA = Math.floor(Number(amountA) * 0.97).toString();
+    const depB = Math.floor(Number(amountB) * 0.97).toString();
+    const dep = await found.amm.buildDeposit(ctx, found.pool, owner, depA, depB);
+    const tip = jitoTipIx(web3, ownerPk, tipLamports ? Number(tipLamports) : 500000);
     txs.push({ label: `Deposit ${found.amm.name} + tip`, tx: await buildV0(web3, conn, ownerPk, [...dep.instructions, tip]) });
 
     res.json({
