@@ -173,14 +173,49 @@ async function crank() {
 }
 
 const app = express();
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.json({ limit: '2mb' }));
+// Same-origin RPC proxy so the browser hits mainnet (via Helius) without ever
+// seeing the API key.
+app.post('/rpc', async (req, res) => {
+  try {
+    const r = await fetch(RPC_URL, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(req.body),
+    });
+    res.type('application/json').send(await r.text());
+  } catch (e) { res.status(502).json({ error: String(e) }); }
+});
 app.get('/api/config', (_req, res) => res.json({ programId: PROGRAM_ID.toBase58(), cluster: CLUSTER }));
 app.get('/api/pairs', (_req, res) => res.json({ lastUpdate: state.lastUpdate, error: state.error, pairs: state.pairs }));
 app.get('/api/history/:mint', (req, res) => res.json({ history: state.history[req.params.mint] || [] }));
 app.get('/healthz', (_req, res) => res.send('ok'));
 
+// --- SSE live NAV stream ---
+const sseClients = new Set();
+app.get('/api/stream', (req, res) => {
+  res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+  res.flushHeaders();
+  res.write(`data: ${JSON.stringify({ lastUpdate: state.lastUpdate, pairs: state.pairs })}\n\n`);
+  sseClients.add(res);
+  const ping = setInterval(() => res.write(': ping\n\n'), 25000);
+  req.on('close', () => { clearInterval(ping); sseClients.delete(res); });
+});
+function broadcast() {
+  const payload = `data: ${JSON.stringify({ lastUpdate: state.lastUpdate, pairs: state.pairs })}\n\n`;
+  for (const c of sseClients) { try { c.write(payload); } catch (_) {} }
+}
+
+// --- SSR landing: inject the current snapshot so the page paints instantly ---
+const fs = require('fs');
+const INDEX = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8');
+app.get('/', (_req, res) => {
+  const initial = JSON.stringify({ config: { programId: PROGRAM_ID.toBase58(), cluster: CLUSTER }, pairs: state.pairs, lastUpdate: state.lastUpdate });
+  res.type('html').send(INDEX.replace('</head>', `<script>window.__INITIAL__=${initial}</script></head>`));
+});
+app.use(express.static(path.join(__dirname, 'public')));
+
 app.listen(PORT, () => {
   console.log(`NAV engine on :${PORT}  cluster=${CLUSTER}  program=${PROGRAM_ID.toBase58()}`);
-  crank();
-  setInterval(crank, POLL_MS);
+  (async () => { await crank(); broadcast(); })();
+  setInterval(async () => { await crank(); broadcast(); }, POLL_MS);
 });

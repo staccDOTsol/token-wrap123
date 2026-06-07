@@ -183,19 +183,19 @@ function headFor(p){
 }
 
 async function boot(){
-  CFG=await (await fetch('/api/config')).json();
+  CFG=(window.__INITIAL__&&window.__INITIAL__.config)||await (await fetch('/api/config')).json();
   PROGRAM=new PublicKey(CFG.programId);
   document.getElementById('cluster').textContent='◉ '+CFG.cluster;
   document.getElementById('pid').textContent=CFG.programId;
-  RPC = CFG.cluster==='mainnet' ? 'https://api.mainnet-beta.solana.com' : 'https://api.devnet.solana.com';
-  conn=new Connection(RPC,'confirmed');
+  conn=new Connection(location.origin+'/rpc','confirmed'); // server proxies to mainnet (Helius)
   const setMode=m=>{heroMode=m;document.getElementById('t-nav').classList.toggle('on',m==='nav');
     document.getElementById('t-tvl').classList.toggle('on',m==='tvl');renderHero();};
   document.getElementById('t-nav').onclick=()=>setMode('nav');
   document.getElementById('t-tvl').onclick=()=>setMode('tvl');
   document.getElementById('mx').onclick=()=>document.getElementById('modal').classList.remove('show');
   document.getElementById('modal').onclick=e=>{if(e.target.id==='modal')document.getElementById('modal').classList.remove('show');};
-  refresh(); setInterval(refresh,12000);
+  try{const es=new EventSource('/api/stream');es.onmessage=()=>refresh();}catch(_){}
+  refresh(); setInterval(refresh,15000);
 }
 function sortPair(a,b){return Buffer.compare(a.toBuffer(),b.toBuffer())<=0?[a,b]:[b,a];}
 function authPda(m){return PublicKey.findProgramAddressSync([enc.encode('authority'),m.toBuffer()],PROGRAM)[0];}

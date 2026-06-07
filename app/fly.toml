@@ -6,7 +6,7 @@ primary_region = "iad"
 [build]
 
 [env]
-  CLUSTER = "devnet"
+  CLUSTER = "mainnet"
   POLL_MS = "20000"
   PROGRAM_ID = "EbmEELwtg3iqHdtNCKcRwZCKmWzGpF11ZTvc9sPxBQJB"
 
