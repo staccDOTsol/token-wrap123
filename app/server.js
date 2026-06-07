@@ -117,8 +117,11 @@ async function lpUsdPriceMap(a, b) {
     const r = await fetch(`https://amm-v2.meteora.ag/pools/search?include_token_mints=${a}&include_token_mints=${b}`, { headers: { accept: 'application/json' } });
     const j = await r.json();
     for (const p of (Array.isArray(j) ? j : (j.data || []))) {
-      const lp = p.lp_mint || p.pool_token_mint, tvl = Number(p.pool_tvl || p.tvl || 0), sup = Number(p.lp_supply || 0);
-      if (lp && tvl > 0 && sup > 0) map[lp] = tvl / sup;
+      const lp = p.lp_mint || p.pool_token_mint, tvl = Number(p.pool_tvl || p.tvl || 0);
+      const dec = Number(p.lp_decimal ?? p.lp_mint_decimals ?? 0);
+      const supRaw = Number(p.lp_supply || 0);
+      const supUi = dec ? supRaw / 10 ** dec : supRaw; // normalize to UI LP units
+      if (lp && tvl > 0 && supUi > 0) map[lp] = tvl / supUi; // USD per UI LP
     }
   } catch (_) {}
   lpPxCache.set(key, { map, t: Date.now() });

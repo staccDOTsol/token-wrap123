@@ -228,7 +228,7 @@ const raydiumCpmm = {
     const raydium = await Raydium.load({
       connection: ctx.conn,
       owner: new web3.PublicKey(owner),
-      disableLoadToken: true,
+      cluster: 'mainnet', disableLoadToken: true,
     });
     const data = await raydium.cpmm.getPoolInfoFromRpc(pool.poolId);
     const { poolInfo, poolKeys } = data;
@@ -256,7 +256,7 @@ const raydiumCpmm = {
     const raydium = await Raydium.load({
       connection: ctx.conn,
       owner: new web3.PublicKey(owner),
-      disableLoadToken: true,
+      cluster: 'mainnet', disableLoadToken: true,
     });
     const data = await raydium.cpmm.getPoolInfoFromRpc(pool.poolId);
     const { poolInfo, poolKeys } = data;
@@ -294,7 +294,7 @@ const raydiumV4 = {
     const { web3 } = ctx;
     const { Raydium } = require('@raydium-io/raydium-sdk-v2');
     const BN = require('bn.js');
-    const raydium = await Raydium.load({ connection: ctx.conn, owner: new web3.PublicKey(owner), disableLoadToken: true });
+    const raydium = await Raydium.load({ connection: ctx.conn, owner: new web3.PublicKey(owner), cluster: 'mainnet', disableLoadToken: true });
     const { poolInfo, poolKeys } = await raydium.liquidity.getPoolInfoFromRpc({ poolId: pool.poolId });
     const res = await raydium.liquidity.addLiquidity({
       poolInfo, poolKeys,
@@ -311,7 +311,7 @@ const raydiumV4 = {
     const { web3 } = ctx;
     const { Raydium } = require('@raydium-io/raydium-sdk-v2');
     const BN = require('bn.js');
-    const raydium = await Raydium.load({ connection: ctx.conn, owner: new web3.PublicKey(owner), disableLoadToken: true });
+    const raydium = await Raydium.load({ connection: ctx.conn, owner: new web3.PublicKey(owner), cluster: 'mainnet', disableLoadToken: true });
     const { poolInfo, poolKeys } = await raydium.liquidity.getPoolInfoFromRpc({ poolId: pool.poolId });
     const res = await raydium.liquidity.removeLiquidity({
       poolInfo, poolKeys, amountIn: new BN(String(lpAmount)), txVersion: 0,
