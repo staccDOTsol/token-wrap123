@@ -17,9 +17,19 @@ use {
 };
 
 /// Raydium Liquidity Pool AMM v4 (the classic OpenBook constant-product AMM).
+/// Raydium uses different program ids on devnet; the `devnet` feature selects
+/// them so the program can be exercised end-to-end on devnet.
+#[cfg(not(feature = "devnet"))]
 pub const RAYDIUM_AMM_V4_PROGRAM_ID: Pubkey = pubkey!("675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8");
+/// Raydium AMM v4 program id on devnet.
+#[cfg(feature = "devnet")]
+pub const RAYDIUM_AMM_V4_PROGRAM_ID: Pubkey = pubkey!("HWy1jotHpo6UqeQxx49dpYYdQB8wj9Qk9MdxwjLvDHB8");
 /// Raydium CPMM / CP-Swap (the newer Token-2022-aware constant-product AMM).
+#[cfg(not(feature = "devnet"))]
 pub const RAYDIUM_CPMM_PROGRAM_ID: Pubkey = pubkey!("CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C");
+/// Raydium CPMM program id on devnet.
+#[cfg(feature = "devnet")]
+pub const RAYDIUM_CPMM_PROGRAM_ID: Pubkey = pubkey!("CPMDWBwJDtYax9qW7AyRuVC19Cc4L4Vcy4n2BHAbHkCW");
 /// PumpSwap AMM (pump.fun's constant-product AMM).
 pub const PUMP_SWAP_PROGRAM_ID: Pubkey = pubkey!("pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA");
 /// Meteora Dynamic AMM (formerly Mercurial), constant-product with fungible LP.

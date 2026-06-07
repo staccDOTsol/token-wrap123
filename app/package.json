@@ -1,0 +1,14 @@
+{
+  "name": "lp-wrap-nav-engine",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Off-chain NAV crank + degen UI for the SPL LP Wrap program",
+  "type": "commonjs",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "dependencies": {
+    "@solana/web3.js": "^1.95.3",
+    "@solana/spl-token": "^0.4.8",
+    "express": "^4.19.2"
+  }
+}

@@ -9,6 +9,9 @@ edition = { workspace = true }
 
 [features]
 no-entrypoint = []
+# Selects each AMM's devnet program ids (Raydium differs on devnet). Never
+# enable for mainnet builds.
+devnet = []
 
 [dependencies]
 bytemuck = { workspace = true }

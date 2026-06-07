@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>LP Wrap · NAV Engine</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0c0d10; --bg2:#0f1115; --card:#15181e; --card2:#191d24;
+    --line:#23272f; --line2:#2c313a;
+    --green:#1fe17c; --green-d:#13c46a; --txt:#e8ecf1; --dim:#8b93a1; --pink:#ff7ac2;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--txt);
+    font-family:Inter,system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased}
+  a{color:var(--green);text-decoration:none}
+  .topbar{position:sticky;top:0;z-index:9;display:flex;align-items:center;justify-content:space-between;
+    padding:14px 22px;background:rgba(12,13,16,.82);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:800;letter-spacing:-.2px;font-size:17px}
+  .logo{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,var(--green),#9bffcf);
+    display:grid;place-items:center;color:#06231a;font-weight:900;box-shadow:0 0 18px rgba(31,225,124,.45)}
+  .chip{font-size:12px;color:var(--dim);background:var(--card);border:1px solid var(--line);border-radius:999px;padding:5px 11px}
+  .btn{font-family:inherit;font-weight:700;cursor:pointer;border:0;border-radius:11px;padding:10px 18px;
+    background:var(--green);color:#05221a;letter-spacing:.2px;transition:.15s;font-size:14px}
+  .btn:hover{background:#34ed8f;box-shadow:0 6px 22px rgba(31,225,124,.35);transform:translateY(-1px)}
+  .btn.ghost{background:var(--card2);color:var(--txt);border:1px solid var(--line2)}
+  .btn.ghost:hover{border-color:var(--green);box-shadow:none}
+  .wrap{max-width:1160px;margin:0 auto;padding:26px 22px 60px}
+  .hero{display:flex;flex-direction:column;gap:6px;margin:6px 0 22px}
+  .hero h1{font-size:30px;margin:0;font-weight:800;letter-spacing:-.6px}
+  .hero h1 em{font-style:normal;color:var(--green)}
+  .hero p{margin:0;color:var(--dim);font-size:14px}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:18px 0 26px}
+  .stat{background:linear-gradient(180deg,var(--card2),var(--card));border:1px solid var(--line);border-radius:16px;padding:16px 18px}
+  .stat .k{color:var(--dim);font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.4px}
+  .stat .v{font-size:27px;margin-top:6px;font-weight:800;letter-spacing:-.5px}
+  .stat .v.g{color:var(--green)}
+  #wallet{color:var(--dim);font-size:13px;margin-bottom:6px}
+  .holds{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:18px}
+  .hold{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 14px;font-size:13px}
+  .hold b{color:var(--green)}
+  .sec{display:flex;align-items:center;gap:10px;margin:8px 0 14px}
+  .sec h3{margin:0;font-size:15px;font-weight:700;color:var(--dim);text-transform:uppercase;letter-spacing:.6px}
+  .sec .line{flex:1;height:1px;background:var(--line)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px}
+  .card{background:linear-gradient(180deg,var(--card2),var(--card));border:1px solid var(--line);border-radius:18px;
+    padding:18px;transition:.15s}
+  .card:hover{border-color:var(--green);transform:translateY(-2px);box-shadow:0 14px 40px rgba(0,0,0,.4)}
+  .chead{display:flex;align-items:center;gap:12px}
+  .av{width:44px;height:44px;border-radius:50%;flex:none;display:grid;place-items:center;font-weight:800;color:#06231a;font-size:15px}
+  .chead .nm{font-weight:700;font-size:15px}
+  .chead .sub{color:var(--dim);font-size:12px;margin-top:2px}
+  .legs{margin-left:auto;font-size:11px;font-weight:700;color:var(--green);background:rgba(31,225,124,.12);
+    border:1px solid rgba(31,225,124,.3);border-radius:999px;padding:4px 10px;white-space:nowrap}
+  .navbox{display:flex;align-items:flex-end;justify-content:space-between;margin:16px 0 4px}
+  .navbox .lab{color:var(--dim);font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.4px}
+  .nav{font-size:38px;font-weight:800;letter-spacing:-1px;line-height:1}
+  .nav.up{color:var(--green)} .nav.flat{color:var(--txt)}
+  .delta{font-size:12px;font-weight:700;color:var(--green)}
+  svg.spark{width:100%;height:42px;margin:6px 0 2px}
+  .rows{margin-top:10px;border-top:1px solid var(--line);padding-top:10px}
+  .row{display:flex;justify-content:space-between;font-size:13px;color:var(--dim);padding:4px 0}
+  .row b{color:var(--txt);font-weight:600}
+  .mint{font-size:11px;color:var(--dim);word-break:break-all;margin-top:6px;font-family:ui-monospace,monospace}
+  .cta{display:flex;gap:8px;margin-top:14px}
+  .cta .btn{flex:1;text-align:center}
+  .foot{margin-top:34px;color:var(--dim);font-size:12px;text-align:center;line-height:1.7}
+  .foot code{color:#aeb6c2}
+  /* charts */
+  .hero-chart{background:linear-gradient(180deg,var(--card2),var(--card));border:1px solid var(--line);
+    border-radius:18px;padding:18px 18px 6px;margin-bottom:22px}
+  .hc-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+  .hc-head .t{font-weight:700;font-size:14px}
+  .hc-head .v{font-weight:800;font-size:20px;color:var(--green)}
+  .toggle{display:flex;gap:6px}
+  .toggle button{font-size:11px;padding:4px 10px;border-radius:8px;background:var(--card);border:1px solid var(--line2);color:var(--dim);font-weight:600}
+  .toggle button.on{background:var(--green);color:#05221a;border-color:var(--green)}
+  svg.chart{width:100%;height:200px;display:block}
+  .card{cursor:pointer}
+  .modal{position:fixed;inset:0;background:rgba(4,5,8,.72);backdrop-filter:blur(6px);display:none;
+    align-items:center;justify-content:center;z-index:50;padding:18px}
+  .modal.show{display:flex}
+  .sheet{width:min(720px,100%);background:var(--bg2);border:1px solid var(--line2);border-radius:20px;padding:22px}
+  .sheet h2{margin:0 0 2px;font-size:18px}
+  .sheet .x{float:right;cursor:pointer;color:var(--dim);font-size:20px;line-height:1}
+  .mstats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0}
+  .mstat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px}
+  .mstat .k{color:var(--dim);font-size:11px;text-transform:uppercase}
+  .mstat .v{font-size:20px;font-weight:800;margin-top:4px}
+  @media(max-width:720px){.stats{grid-template-columns:repeat(2,1fr)}.hero h1{font-size:24px}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="brand"><div class="logo">↻</div> LP&nbsp;Wrap</div>
+  <div style="display:flex;gap:10px;align-items:center">
+    <span class="chip" id="cluster">…</span>
+    <span class="chip" id="updated">…</span>
+    <button class="btn" id="connect">Connect Wallet</button>
+  </div>
+</div>
+
+<div class="wrap">
+  <div class="hero">
+    <h1>One wrapped token. <em>Every AMM's LP.</em></h1>
+    <p>Wrap Raydium, PumpSwap & Meteora LP for a pair into a single NAV-bearing share token. Fees &amp; donations pump the NAV.</p>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="k">Wrapped Pairs</div><div class="v" id="s-pairs">–</div></div>
+    <div class="stat"><div class="k">Total Share Supply</div><div class="v" id="s-supply">–</div></div>
+    <div class="stat"><div class="k">AMM Legs Combined</div><div class="v" id="s-amms">–</div></div>
+    <div class="stat"><div class="k">Avg NAV / Share</div><div class="v g" id="s-nav">–</div></div>
+  </div>
+
+  <div class="hero-chart">
+    <div class="hc-head">
+      <div><div class="t" id="hc-title">Protocol NAV</div></div>
+      <div style="display:flex;gap:14px;align-items:center">
+        <div class="v" id="hc-val">–</div>
+        <div class="toggle">
+          <button id="t-nav" class="on">NAV</button>
+          <button id="t-tvl">TVL</button>
+        </div>
+      </div>
+    </div>
+    <svg class="chart" id="heroChart" viewBox="0 0 600 200" preserveAspectRatio="none"></svg>
+  </div>
+
+  <div id="wallet"></div>
+  <div class="holds" id="holdings"></div>
+
+  <div class="sec"><h3>Vaults</h3><div class="line"></div></div>
+  <div class="grid" id="grid"></div>
+
+  <div class="foot">
+    Program <code id="pid"></code><br>
+    NAV = Σ(normalized reserves) / share supply · 3 bps mint &amp; burn (NAV + creator + deployer) · 1 bps transfer fee
+  </div>
+</div>
+
+<div class="modal" id="modal"><div class="sheet">
+  <span class="x" id="mx">✕</span>
+  <h2 id="m-title">Vault</h2>
+  <div class="mint" id="m-mint"></div>
+  <div class="mstats">
+    <div class="mstat"><div class="k">NAV / share</div><div class="v" id="m-nav" style="color:var(--green)">–</div></div>
+    <div class="mstat"><div class="k">Share supply</div><div class="v" id="m-sup">–</div></div>
+    <div class="mstat"><div class="k">AMM legs</div><div class="v" id="m-legs">–</div></div>
+  </div>
+  <svg class="chart" id="modalChart" viewBox="0 0 600 200" preserveAspectRatio="none"></svg>
+</div></div>
+
+<script type="module">
+import {Connection,PublicKey,Transaction,TransactionInstruction} from 'https://esm.sh/@solana/web3.js@1.95.3';
+import {getAssociatedTokenAddressSync,createAssociatedTokenAccountIdempotentInstruction,
+        TOKEN_PROGRAM_ID,TOKEN_2022_PROGRAM_ID} from 'https://esm.sh/@solana/spl-token@0.4.8';
+
+const DEPLOYER=new PublicKey('WzMaL78srutrF6CsxEkWuhMaDF5HZA6jNRaEPengqpb');
+let CFG={programId:'',cluster:'devnet'}, PROGRAM, RPC, conn, wallet=null;
+
+const fmt=(x,d=4)=>Number(x).toLocaleString(undefined,{maximumFractionDigits:d});
+const short=s=>s.slice(0,4)+'…'+s.slice(-4);
+const enc=new TextEncoder();
+
+// deterministic avatar gradient from a base58 string
+function hue(s){let h=0;for(const c of s)h=(h*31+c.charCodeAt(0))%360;return h;}
+function avatar(seed,label){const h=hue(seed);
+  return `<div class="av" style="background:linear-gradient(135deg,hsl(${h} 90% 60%),hsl(${(h+60)%360} 90% 55%))">${label}</div>`;}
+const tlabel=t=>t.symbol||t.name||short(t.mint);
+const tav=t=>t.image
+  ? `<img class="av" style="object-fit:cover" src="${t.image}" alt="${tlabel(t)}"/>`
+  : avatar(t.mint,(t.symbol||t.name||'?').slice(0,3).toUpperCase());
+function headFor(p){
+  const d=p.display||{featured:[{mint:p.mintA,symbol:''}],quote:null};
+  const f=d.featured;
+  const title=f.length===1
+    ? `${tlabel(f[0])}${d.quote?` <span style="color:var(--dim);font-weight:500">/ ${d.quote}</span>`:''}`
+    : `${tlabel(f[0])} / ${tlabel(f[1])}`;
+  return `${tav(f[0])}<div><div class="nm">${title}</div><div class="sub">${short(p.wrappedMint)}</div></div>`;
+}
+
+async function boot(){
+  CFG=await (await fetch('/api/config')).json();
+  PROGRAM=new PublicKey(CFG.programId);
+  document.getElementById('cluster').textContent='◉ '+CFG.cluster;
+  document.getElementById('pid').textContent=CFG.programId;
+  RPC = CFG.cluster==='mainnet' ? 'https://api.mainnet-beta.solana.com' : 'https://api.devnet.solana.com';
+  conn=new Connection(RPC,'confirmed');
+  const setMode=m=>{heroMode=m;document.getElementById('t-nav').classList.toggle('on',m==='nav');
+    document.getElementById('t-tvl').classList.toggle('on',m==='tvl');renderHero();};
+  document.getElementById('t-nav').onclick=()=>setMode('nav');
+  document.getElementById('t-tvl').onclick=()=>setMode('tvl');
+  document.getElementById('mx').onclick=()=>document.getElementById('modal').classList.remove('show');
+  document.getElementById('modal').onclick=e=>{if(e.target.id==='modal')document.getElementById('modal').classList.remove('show');};
+  refresh(); setInterval(refresh,12000);
+}
+function sortPair(a,b){return Buffer.compare(a.toBuffer(),b.toBuffer())<=0?[a,b]:[b,a];}
+function authPda(m){return PublicKey.findProgramAddressSync([enc.encode('authority'),m.toBuffer()],PROGRAM)[0];}
+function configPda(m){return PublicKey.findProgramAddressSync([enc.encode('config'),m.toBuffer()],PROGRAM)[0];}
+
+let pairsCache=[], heroMode='nav';
+const globalHist=[]; // {t, nav, tvl}
+
+function spark(hist){
+  if(!hist||hist.length<2)return '<svg class="spark"></svg>';
+  const xs=hist.slice(-44),vs=xs.map(h=>h.nav||0),mn=Math.min(...vs),mx=Math.max(...vs),rng=(mx-mn)||1;
+  const pts=xs.map((h,i)=>`${(i/(xs.length-1))*100},${42-((h.nav-mn)/rng)*34-4}`).join(' ');
+  return `<svg class="spark" viewBox="0 0 100 42" preserveAspectRatio="none">
+    <polyline points="${pts}" fill="none" stroke="#1fe17c" stroke-width="1.6"/></svg>`;
+}
+
+// Pretty area chart -> SVG innerHTML (600x200 viewBox), with grid + gradient + last dot.
+function areaChart(values, fmtV){
+  const W=600,H=200,pad=6;
+  if(!values||values.length<2) return `<text x="300" y="100" fill="#8b93a1" font-size="13" text-anchor="middle" font-family="Inter">collecting data…</text>`;
+  const vs=values, mn=Math.min(...vs), mx=Math.max(...vs), rng=(mx-mn)||Math.abs(mx)||1;
+  const x=i=>pad+(i/(vs.length-1))*(W-2*pad);
+  const y=v=>H-pad-((v-mn)/rng)*(H-2*pad-14);
+  const line=vs.map((v,i)=>`${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  const area=`${pad},${H-pad} ${line} ${W-pad},${H-pad}`;
+  let grid='';
+  for(let g=0;g<=3;g++){const gy=pad+ (g/3)*(H-2*pad-14); const gv=mx-(g/3)*rng;
+    grid+=`<line x1="${pad}" y1="${gy}" x2="${W-pad}" y2="${gy}" stroke="#23272f" stroke-width="1"/>
+           <text x="${W-pad}" y="${gy-3}" fill="#5b6472" font-size="10" text-anchor="end" font-family="Inter">${fmtV(gv)}</text>`;}
+  const lx=x(vs.length-1), ly=y(vs[vs.length-1]);
+  return `<defs><linearGradient id="ag" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1fe17c" stop-opacity="0.32"/><stop offset="1" stop-color="#1fe17c" stop-opacity="0"/></linearGradient></defs>
+    ${grid}
+    <polygon points="${area}" fill="url(#ag)"/>
+    <polyline points="${line}" fill="none" stroke="#1fe17c" stroke-width="2.2"/>
+    <circle cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="3.4" fill="#1fe17c"/>`;
+}
+
+function renderHero(){
+  const mode=heroMode;
+  const vals=globalHist.map(h=>mode==='nav'?h.nav:h.tvl);
+  const fmtV=mode==='nav'?(v=>v.toFixed(4)):(v=>fmt(v,1));
+  document.getElementById('hc-title').textContent=mode==='nav'?'Protocol Avg NAV / Share':'Protocol TVL (normalized)';
+  const last=vals[vals.length-1];
+  document.getElementById('hc-val').textContent=last!=null?(mode==='nav'?fmt(last,5):fmt(last,2)):'–';
+  document.getElementById('heroChart').innerHTML=areaChart(vals,fmtV);
+}
+
+async function openModal(p){
+  const d=p.display||{featured:[{mint:p.mintA,symbol:''}],quote:null};
+  document.getElementById('m-title').textContent=d.featured.length===1
+    ? `${tlabel(d.featured[0])}${d.quote?' / '+d.quote:''}` : `${tlabel(d.featured[0])} / ${tlabel(d.featured[1])}`;
+  document.getElementById('m-mint').textContent=p.wrappedMint;
+  document.getElementById('m-nav').textContent=p.navPerShare?fmt(p.navPerShare,6):'—';
+  document.getElementById('m-sup').textContent=fmt(Number(p.shareSupply)/10**p.shareDecimals,3);
+  document.getElementById('m-legs').textContent=p.ammCount;
+  const hist=(await (await fetch('/api/history/'+p.wrappedMint)).json()).history||[];
+  document.getElementById('modalChart').innerHTML=areaChart(hist.map(h=>h.nav||0),v=>v.toFixed(4));
+  document.getElementById('modal').classList.add('show');
+}
+
+async function refresh(){
+  const data=await (await fetch('/api/pairs')).json();
+  const pairs=data.pairs||[];
+  document.getElementById('updated').textContent='upd '+(data.lastUpdate?new Date(data.lastUpdate).toLocaleTimeString():'—');
+  document.getElementById('s-pairs').textContent=pairs.length;
+  let supply=0,amms=0,navs=[];
+  for(const p of pairs){supply+=Number(p.shareSupply)/10**p.shareDecimals;amms+=p.ammCount;if(p.navPerShare)navs.push(p.navPerShare);}
+  document.getElementById('s-supply').textContent=fmt(supply,2);
+  document.getElementById('s-amms').textContent=amms;
+  const avgNav=navs.length?navs.reduce((a,b)=>a+b,0)/navs.length:0;
+  document.getElementById('s-nav').textContent=navs.length?fmt(avgNav,5):'–';
+  let tvl=0;for(const p of pairs)tvl+=Number(p.reservesCommon)/10**p.shareDecimals;
+  globalHist.push({t:Date.now(),nav:avgNav,tvl});if(globalHist.length>240)globalHist.shift();
+  pairsCache=pairs;renderHero();
+
+  const grid=document.getElementById('grid');grid.innerHTML='';
+  for(const p of pairs){
+    const hist=(await (await fetch('/api/history/'+p.wrappedMint)).json()).history;
+    const up=p.navPerShare>1.0000001;
+    const delta=up?`▲ ${fmt((p.navPerShare-1)*100,3)}%`:'flat';
+    const el=document.createElement('div');el.className='card';
+    el.innerHTML=`
+      <div class="chead">
+        ${headFor(p)}
+        <span class="legs">◆ ${p.ammCount} AMM leg${p.ammCount===1?'':'s'}</span>
+      </div>
+      <div class="navbox"><div><div class="lab">NAV / share</div>
+        <div class="nav ${up?'up':'flat'}">${p.navPerShare?fmt(p.navPerShare,6):'—'}</div></div>
+        <div class="delta">${delta}</div></div>
+      ${spark(hist)}
+      <div class="rows">
+        <div class="row"><span>Share supply</span><b>${fmt(Number(p.shareSupply)/10**p.shareDecimals,3)}</b></div>
+        <div class="row"><span>Reserves (norm)</span><b>${fmt(Number(p.reservesCommon)/10**p.shareDecimals,3)}</b></div>
+      </div>
+      <div class="mint">${p.mintA}<br>${p.mintB}</div>
+      <div class="cta">
+        <button class="btn wrapbtn" data-wm="${p.wrappedMint}">Wrap LP</button>
+        <button class="btn ghost unwrapbtn" data-wm="${p.wrappedMint}">Unwrap</button>
+      </div>`;
+    grid.appendChild(el);
+  }
+  document.querySelectorAll('.card').forEach((el,i)=>el.onclick=()=>openModal(pairs[i]));
+  document.querySelectorAll('.wrapbtn').forEach(b=>b.onclick=(e)=>{e.stopPropagation();wrapFlow(pairs.find(x=>x.wrappedMint===b.dataset.wm));});
+  document.querySelectorAll('.unwrapbtn').forEach(b=>b.onclick=(e)=>{e.stopPropagation();alert('Unwrap via CLI: spl-lp-wrap unwrap');});
+  if(wallet)renderHoldings(pairs);
+}
+
+async function renderHoldings(pairs){
+  const box=document.getElementById('holdings');box.innerHTML='';
+  for(const p of pairs){
+    const ata=getAssociatedTokenAddressSync(new PublicKey(p.wrappedMint),wallet,true,TOKEN_2022_PROGRAM_ID);
+    try{const bal=await conn.getTokenAccountBalance(ata);
+      const sh=Number(bal.value.amount)/10**p.shareDecimals;
+      if(sh>0){const d=document.createElement('div');d.className='hold';
+        d.innerHTML=`${short(p.wrappedMint)} · <b>${fmt(sh,4)}</b> shares · ≈ ${fmt(sh*p.navPerShare,4)} LP`;
+        box.appendChild(d);}
+    }catch(_){}
+  }
+}
+
+document.getElementById('connect').onclick=async()=>{
+  if(!window.solana){alert('Install Phantom');return;}
+  const r=await window.solana.connect();wallet=new PublicKey(r.publicKey.toString());
+  document.getElementById('connect').textContent=short(wallet.toBase58());
+  document.getElementById('wallet').textContent='Connected '+wallet.toBase58()+' — your holdings:';
+  refresh();
+};
+
+async function wrapFlow(p){
+  if(!wallet){alert('Connect wallet first');return;}
+  const lpMint=prompt('LP mint to wrap (from an approved AMM pool for this pair):');if(!lpMint)return;
+  const pool=prompt('AMM pool account address:');if(!pool)return;
+  const amount=prompt('Amount of LP (base units):');if(!amount)return;
+  try{
+    const ix=await buildWrap(p,new PublicKey(lpMint),new PublicKey(pool),BigInt(amount));
+    const tx=new Transaction().add(...ix);
+    tx.feePayer=wallet;tx.recentBlockhash=(await conn.getLatestBlockhash()).blockhash;
+    const s=await window.solana.signAndSendTransaction(tx);
+    alert('Sent: '+(s.signature||s));
+  }catch(e){alert('Wrap failed: '+(e.message||e));}
+}
+async function buildWrap(p,lpMint,pool,amount){
+  const wm=new PublicKey(p.wrappedMint),wtp=TOKEN_2022_PROGRAM_ID,lpProg=TOKEN_PROGRAM_ID;
+  const auth=authPda(wm),cfg=configPda(wm);
+  const recipient=getAssociatedTokenAddressSync(wm,wallet,true,wtp);
+  const sourceLp=getAssociatedTokenAddressSync(lpMint,wallet,false,lpProg);
+  const escrow=getAssociatedTokenAddressSync(lpMint,auth,true,lpProg);
+  const creatorShare=getAssociatedTokenAddressSync(wm,new PublicKey(p.creator),true,wtp);
+  const deployerShare=getAssociatedTokenAddressSync(wm,DEPLOYER,true,wtp);
+  const others=p.escrows.filter(e=>e.lpMint!==lpMint.toBase58())
+    .map(e=>getAssociatedTokenAddressSync(new PublicKey(e.lpMint),auth,true,
+        e.program==='token-2022'?TOKEN_2022_PROGRAM_ID:TOKEN_PROGRAM_ID));
+  const data=new Uint8Array(9);data[0]=1;new DataView(data.buffer).setBigUint64(1,amount,true);
+  const keys=[
+    {pubkey:recipient,isSigner:false,isWritable:true},{pubkey:wm,isSigner:false,isWritable:true},
+    {pubkey:auth,isSigner:false,isWritable:false},{pubkey:cfg,isSigner:false,isWritable:true},
+    {pubkey:wtp,isSigner:false,isWritable:false},{pubkey:lpProg,isSigner:false,isWritable:false},
+    {pubkey:sourceLp,isSigner:false,isWritable:true},{pubkey:lpMint,isSigner:false,isWritable:false},
+    {pubkey:escrow,isSigner:false,isWritable:true},{pubkey:pool,isSigner:false,isWritable:false},
+    {pubkey:wallet,isSigner:true,isWritable:false},{pubkey:creatorShare,isSigner:false,isWritable:true},
+    {pubkey:deployerShare,isSigner:false,isWritable:true},
+    ...others.map(o=>({pubkey:o,isSigner:false,isWritable:true})),
+  ];
+  const ata=(a,owner,mint,prog)=>createAssociatedTokenAccountIdempotentInstruction(wallet,a,owner,mint,prog);
+  return [ata(recipient,wallet,wm,wtp),ata(creatorShare,new PublicKey(p.creator),wm,wtp),
+    ata(deployerShare,DEPLOYER,wm,wtp),ata(escrow,auth,lpMint,lpProg),
+    new TransactionInstruction({programId:PROGRAM,keys,data})];
+}
+boot();
+</script>
+</body>
+</html>
