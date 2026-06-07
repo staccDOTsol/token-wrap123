@@ -390,11 +390,11 @@ async function findAmm(ctx, mintA, mintB) {
 
 // ----------------------------------------------------- wrap ix builder ------
 // Mirrors the client `buildWrap`: returns ATA-idempotent ix + the Wrap ix.
-function buildWrapInstructions(ctx, owner, wrappedMint, lpMint, pool, amount, creator, escrows) {
+function buildWrapInstructions(ctx, owner, wrappedMint, lpMint, pool, amount, creator, escrows, lpProgram) {
   const { web3, splToken } = ctx;
   const programId = ctx.programId;
   const wtp = splToken.TOKEN_2022_PROGRAM_ID;
-  const lpProg = splToken.TOKEN_PROGRAM_ID;
+  const lpProg = lpProgram || splToken.TOKEN_PROGRAM_ID; // actual LP token program
   const auth = authorityPda(web3, programId, wrappedMint);
   const cfg = configPda(web3, programId, wrappedMint);
   const ata = (mint, ownerPk, prog, allowOff) =>
@@ -736,8 +736,12 @@ async function wrap(req, res) {
     const creator = exists
       ? await readCreator(ctx, wm).catch(() => owner)
       : owner;
+    // Detect the LP mint's actual token program (SPL Token vs Token-2022) so the
+    // wrap's CPIs use the correct program id (else InstructionError IncorrectProgramId).
+    let lpProgram = splToken.TOKEN_PROGRAM_ID;
+    try { const li = await conn.getAccountInfo(new web3.PublicKey(lpMint)); if (li && li.owner) lpProgram = li.owner; } catch (_) {}
     const wrapIx = buildWrapInstructions(
-      ctx, ownerPk, wm, new web3.PublicKey(lpMint), poolId, lpAmount, creator, escrows);
+      ctx, ownerPk, wm, new web3.PublicKey(lpMint), poolId, lpAmount, creator, escrows, lpProgram);
     const tx = await buildV0(web3, conn, ownerPk, wrapIx);
     steps.push({ label: 'Wrap LP -> shares', txBase64: txToBase64(tx) });
 
