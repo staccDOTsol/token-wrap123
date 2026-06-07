@@ -375,6 +375,12 @@ function configPda(m){return PublicKey.findProgramAddressSync([enc.encode('confi
 let pairsCache=[], heroMode='nav';
 let searchTerm='', sortKey='tvl', page=0;
 const PAGE_SIZE=12, prevSnap={}, bumpedAt={};
+// Pinned vault: stacSOL / Staccana (Ct1Z…sgo4), or any UGC named "stac".
+function isPinned(p){
+  if(!p)return false;
+  const wm=p.wrappedMint||'', m=p.meta||{};
+  return (wm.startsWith('Ct1Z')&&wm.endsWith('sgo4')) || /stac/i.test(m.name||'') || /stac/i.test(m.symbol||'');
+}
 const globalHist=[]; // {t, nav, tvl}
 
 function spark(hist){
@@ -562,6 +568,9 @@ function renderGrid(){
   list.sort(sorters[sortKey]||sorters.tvl);
   // recently-bumped float to the top (stable sort keeps the chosen order within groups)
   list.sort((a,b)=>((bumpedAt[b.wrappedMint]||0)>now-8000?1:0)-((bumpedAt[a.wrappedMint]||0)>now-8000?1:0));
+  // Pinned vault(s) always at the very top — stacSOL / Staccana.
+  list.sort((a,b)=>(isPinned(b)?1:0)-(isPinned(a)?1:0));
+  page=isPinned(list[0])&&searchTerm===''?0:page; // keep the pin visible on page 1
   const pages=Math.max(1,Math.ceil(list.length/PAGE_SIZE));
   if(page>=pages)page=pages-1; if(page<0)page=0;
   const visible=list.slice(page*PAGE_SIZE,(page+1)*PAGE_SIZE);

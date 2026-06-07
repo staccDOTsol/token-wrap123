@@ -339,7 +339,9 @@ const pumpSwap = {
         });
         if (accts.length) {
           const lpMint = new web3.PublicKey(accts[0].account.data).toBase58();
-          return { poolId: accts[0].pubkey.toBase58(), lpMint, lpProgram: 'spl-token', base, quote };
+          // baseIsA records whether mintA is the pool's BASE mint, so buildDeposit
+          // can map amountA/amountB to the base/quote sides correctly.
+          return { poolId: accts[0].pubkey.toBase58(), lpMint, lpProgram: 'spl-token', base, quote, baseIsA: base === mintA };
         }
       } catch (_) {}
     }
@@ -353,11 +355,11 @@ const pumpSwap = {
     const ownerPk = new web3.PublicKey(owner);
     const state = await online.liquiditySolanaState(new web3.PublicKey(pool.poolId), ownerPk);
     const pump = new PumpAmmSdk();
-    // base amount = the deposit amount for the pool's base mint
-    const baseAmount = pool.base === pool.base ? amountA : amountB; // amountA corresponds to mintA == base in our split
-    const dep = pump.depositBaseInput(state, new BN(String(baseAmount)), 0.5);
-    const instructions = await pump.depositInstructionsInternal(
-      state, dep.lpToken, dep.maxToken0 || dep.token0, dep.maxToken1 || dep.token1, ownerPk);
+    // Deposit amount for the pool's BASE mint (amountA maps to mintA).
+    const base = new BN(String(pool.baseIsA === false ? amountB : amountA));
+    // depositBaseInput returns { quote, lpToken, maxBase, maxQuote }; slippage is a percent.
+    const dep = pump.depositBaseInput(state, base, 1);
+    const instructions = await pump.depositInstructionsInternal(state, dep.lpToken, dep.maxBase, dep.maxQuote);
     return { instructions, lpMint: pool.lpMint, estLp: dep.lpToken ? dep.lpToken.toString() : '0' };
   },
   async buildWithdraw(ctx, pool, owner, lpAmount) {
@@ -368,7 +370,8 @@ const pumpSwap = {
     const ownerPk = new web3.PublicKey(owner);
     const state = await online.liquiditySolanaState(new web3.PublicKey(pool.poolId), ownerPk);
     const pump = new PumpAmmSdk();
-    const instructions = await pump.withdrawInstructionsInternal(state, new BN(String(lpAmount)), new BN(0), new BN(0), ownerPk);
+    // withdrawInstructionsInternal(state, lpTokenAmountIn, minBaseOut, minQuoteOut)
+    const instructions = await pump.withdrawInstructionsInternal(state, new BN(String(lpAmount)), new BN(0), new BN(0));
     return { instructions };
   },
 };
