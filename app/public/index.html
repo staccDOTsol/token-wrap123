@@ -245,6 +245,7 @@
         <div class="toggle">
           <button id="t-nav" class="on">NAV</button>
           <button id="t-tvl">TVL</button>
+          <button id="t-usd">USD</button>
         </div>
       </div>
     </div>
@@ -334,10 +335,13 @@ async function boot(){
   document.getElementById('cluster').textContent='◉ '+CFG.cluster;
   document.getElementById('pid').textContent=CFG.programId;
   conn=new Connection(location.origin+'/rpc','confirmed'); // server proxies to mainnet (Helius)
-  const setMode=m=>{heroMode=m;document.getElementById('t-nav').classList.toggle('on',m==='nav');
-    document.getElementById('t-tvl').classList.toggle('on',m==='tvl');renderHero();};
+  const setMode=m=>{heroMode=m;
+    document.getElementById('t-nav').classList.toggle('on',m==='nav');
+    document.getElementById('t-tvl').classList.toggle('on',m==='tvl');
+    document.getElementById('t-usd').classList.toggle('on',m==='usd');renderHero();};
   document.getElementById('t-nav').onclick=()=>setMode('nav');
   document.getElementById('t-tvl').onclick=()=>setMode('tvl');
+  document.getElementById('t-usd').onclick=()=>setMode('usd');
   document.getElementById('mx').onclick=()=>document.getElementById('modal').classList.remove('show');
   document.getElementById('modal').onclick=e=>{if(e.target.id==='modal')document.getElementById('modal').classList.remove('show');};
   document.getElementById('vsearch').oninput=(e)=>{searchTerm=e.target.value;page=0;renderGrid();};
@@ -405,11 +409,11 @@ function areaChart(values, fmtV){
 
 function renderHero(){
   const mode=heroMode;
-  const vals=globalHist.map(h=>mode==='nav'?h.nav:h.tvl);
-  const fmtV=mode==='nav'?(v=>v.toFixed(4)):(v=>fmt(v,1));
-  document.getElementById('hc-title').textContent=mode==='nav'?'Protocol Avg NAV / Share':'Protocol TVL (normalized)';
+  const vals=globalHist.map(h=>mode==='nav'?h.nav:mode==='usd'?(h.usd||0):h.tvl);
+  const fmtV=mode==='nav'?(v=>v.toFixed(4)):mode==='usd'?(v=>'$'+fmt(v,0)):(v=>fmt(v,1));
+  document.getElementById('hc-title').textContent=mode==='nav'?'Protocol Avg NAV / Share':mode==='usd'?'Protocol TVL (USD)':'Protocol TVL (normalized)';
   const last=vals[vals.length-1];
-  document.getElementById('hc-val').textContent=last!=null?(mode==='nav'?fmt(last,5):fmt(last,2)):'–';
+  document.getElementById('hc-val').textContent=last!=null?(mode==='nav'?fmt(last,5):mode==='usd'?'$'+fmt(last,0):fmt(last,2)):'–';
   document.getElementById('heroChart').innerHTML=areaChart(vals,fmtV);
 }
 
@@ -477,6 +481,9 @@ async function renderVault(p,scroll){
     <div class="hero-chart"><div class="hc-head"><div class="t">NAV / share over time</div>
       <div class="v">${up?'▲ ':''}${p.navPerShare?fmt(p.navPerShare,6):'—'}</div></div>
       <svg class="chart" id="vaultChart" viewBox="0 0 600 200" preserveAspectRatio="none"></svg></div>
+    <div class="hero-chart" style="margin-top:14px"><div class="hc-head"><div class="t">USD value of underlying (A + B) over time</div>
+      <div class="v">$${fmt(p.usdTvl||0,0)}</div></div>
+      <svg class="chart" id="vaultChartUsd" viewBox="0 0 600 200" preserveAspectRatio="none"></svg></div>
     <div class="sec"><h3>Tokens &amp; metadata</h3><div class="line"></div></div>
     <div class="meta-grid">${ugc}${unders}</div>
     <div class="cta" style="margin-top:20px;max-width:440px">
@@ -484,8 +491,9 @@ async function renderVault(p,scroll){
       <button class="btn ghost" id="v-wrap" style="flex:none;width:120px">Wrap LP</button>
     </div>`;
   fetch('/api/history/'+p.wrappedMint).then(r=>r.json()).then(d=>{
-    const el=document.getElementById('vaultChart');
-    if(el)el.innerHTML=areaChart((d.history||[]).map(h=>h.nav||0),v=>v.toFixed(4));
+    const h=d.history||[];
+    const nv=document.getElementById('vaultChart');if(nv)nv.innerHTML=areaChart(h.map(x=>x.nav||0),v=>v.toFixed(4));
+    const uv=document.getElementById('vaultChartUsd');if(uv)uv.innerHTML=areaChart(h.map(x=>x.usd||0),v=>'$'+fmt(v,0));
   }).catch(()=>{});
   document.getElementById('backBtn').onclick=()=>{history.pushState({},'','/');showHome();};
   document.getElementById('v-zap').onclick=()=>openZapForPair(p);
@@ -503,8 +511,8 @@ async function refresh(){
   document.getElementById('s-amms').textContent=amms;
   const avgNav=navs.length?navs.reduce((a,b)=>a+b,0)/navs.length:0;
   document.getElementById('s-nav').textContent=navs.length?fmt(avgNav,5):'–';
-  let tvl=0;for(const p of pairs)tvl+=Number(p.reservesCommon)/10**p.shareDecimals;
-  globalHist.push({t:Date.now(),nav:avgNav,tvl});if(globalHist.length>240)globalHist.shift();
+  let tvl=0,usd=0;for(const p of pairs){tvl+=Number(p.reservesCommon)/10**p.shareDecimals;usd+=Number(p.usdTvl||0);}
+  globalHist.push({t:Date.now(),nav:avgNav,tvl,usd});if(globalHist.length>240)globalHist.shift();
   pairsCache=pairs;renderHero();
   if(!routed){routed=true;route();}
 

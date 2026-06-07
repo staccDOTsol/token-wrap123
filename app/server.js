@@ -98,6 +98,33 @@ function buildDisplay(a, b) {
   return { featured: [a, b], quote: null };
 }
 
+// USD valuation: LP unit price = pool TVL(USD) / LP supply, from each AMM's API.
+const lpPxCache = new Map();
+async function lpUsdPriceMap(a, b) {
+  const key = a < b ? a + b : b + a;
+  const c = lpPxCache.get(key);
+  if (c && Date.now() - c.t < 60000) return c.map;
+  const map = {};
+  try {
+    const r = await fetch(`https://api-v3.raydium.io/pools/info/mint?mint1=${a}&mint2=${b}&poolType=all&poolSortField=liquidity&sortType=desc&pageSize=30&page=1`, { headers: { accept: 'application/json' } });
+    const j = await r.json();
+    for (const p of ((j.data && j.data.data) || [])) {
+      const lp = p.lpMint && p.lpMint.address, tvl = Number(p.tvl || 0), amt = Number(p.lpAmount || 0);
+      if (lp && tvl > 0 && amt > 0) map[lp] = tvl / amt; // USD per UI LP
+    }
+  } catch (_) {}
+  try {
+    const r = await fetch(`https://amm-v2.meteora.ag/pools/search?include_token_mints=${a}&include_token_mints=${b}`, { headers: { accept: 'application/json' } });
+    const j = await r.json();
+    for (const p of (Array.isArray(j) ? j : (j.data || []))) {
+      const lp = p.lp_mint || p.pool_token_mint, tvl = Number(p.pool_tvl || p.tvl || 0), sup = Number(p.lp_supply || 0);
+      if (lp && tvl > 0 && sup > 0) map[lp] = tvl / sup;
+    }
+  } catch (_) {}
+  lpPxCache.set(key, { map, t: Date.now() });
+  return map;
+}
+
 const state = { pairs: [], history: {}, lastUpdate: 0, error: null };
 
 async function readTokenAmount(addr) {
@@ -138,6 +165,14 @@ async function crank() {
       }
 
       const navPerShare = supply > 0n ? Number(reserves) / Number(supply) : 0;
+      // USD valuation of the vault's underlying (Σ escrow LP × LP USD price).
+      let usdTvl = 0;
+      try {
+        const lpPx = await lpUsdPriceMap(cfg.mintA.toBase58(), cfg.mintB.toBase58());
+        for (const e of escrows) { const px = lpPx[e.lpMint]; if (px) usdTvl += (Number(e.amount) / 10 ** e.decimals) * px; }
+      } catch (_) {}
+      const supplyUi = Number(supply) / 10 ** cfg.shareDecimals;
+      const navUsd = supplyUi > 0 ? usdTvl / supplyUi : 0;
       const wm = wrappedMint.toBase58();
       const pair = {
         wrappedMint: wm,
@@ -148,13 +183,15 @@ async function crank() {
         shareSupply: supply.toString(),
         reservesCommon: reserves.toString(),
         navPerShare,
+        usdTvl,
+        navUsd,
         ammCount: escrows.length,
         escrows,
       };
       pairs.push(pair);
 
       const hist = state.history[wm] || (state.history[wm] = []);
-      hist.push({ t: Date.now(), nav: navPerShare, supply: supply.toString(), reserves: reserves.toString() });
+      hist.push({ t: Date.now(), nav: navPerShare, supply: supply.toString(), reserves: reserves.toString(), usd: usdTvl, navUsd });
       if (hist.length > 1000) hist.shift();
     }
     // attach token metadata + featured-token display rule. We also resolve the
