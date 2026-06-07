@@ -775,16 +775,25 @@ async function zPost(path,body){
 }
 // Sign+send a base64 versioned tx and await confirmation.
 async function zSendB64(label,b64){
-  zStatus(label+': building…');
   const {VersionedTransaction}=await import('https://esm.sh/@solana/web3.js@1.95.3');
   const tx=VersionedTransaction.deserialize(Uint8Array.from(atob(b64),c=>c.charCodeAt(0)));
   zStatus(label+': confirm in wallet…');
+  // Sign once, then rapid-fire via Helius until it lands (no hanging on confirm).
+  if(window.solana.signTransaction){
+    const signed=await window.solana.signTransaction(tx);
+    zStatus(label+': rapid-firing via Helius…');
+    return await fireUntilLanded(signed,label);
+  }
+  // Fallback (wallet without signTransaction): send + poll status, still no confirmTransaction hang.
   const res=await window.solana.signAndSendTransaction(tx);
   const sig=res.signature||res;
-  zStatus(label+': sent '+String(sig).slice(0,12)+'… awaiting confirmation');
-  const bh=await conn.getLatestBlockhash('confirmed');
-  await conn.confirmTransaction({signature:sig,...bh},'confirmed');
-  return sig;
+  for(let i=0;i<50;i++){
+    await new Promise(r=>setTimeout(r,1200));
+    const st=(await conn.getSignatureStatuses([sig])).value[0];
+    if(st){ if(st.err)throw new Error(label+' failed: '+JSON.stringify(st.err));
+      if(st.confirmationStatus==='confirmed'||st.confirmationStatus==='finalized')return sig; }
+  }
+  throw new Error(label+' did not land — retry');
 }
 async function runSteps(steps){
   for(const s of (steps||[])){await zSendB64(s.label,s.txBase64);}
