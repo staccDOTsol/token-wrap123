@@ -243,9 +243,9 @@
       <div style="display:flex;gap:14px;align-items:center">
         <div class="v" id="hc-val">–</div>
         <div class="toggle">
-          <button id="t-nav" class="on">NAV</button>
+          <button id="t-usd" class="on">USD</button>
+          <button id="t-nav">NAV</button>
           <button id="t-tvl">TVL</button>
-          <button id="t-usd">USD</button>
         </div>
       </div>
     </div>
@@ -372,7 +372,7 @@ function sortPair(a,b){return Buffer.compare(a.toBuffer(),b.toBuffer())<=0?[a,b]
 function authPda(m){return PublicKey.findProgramAddressSync([enc.encode('authority'),m.toBuffer()],PROGRAM)[0];}
 function configPda(m){return PublicKey.findProgramAddressSync([enc.encode('config'),m.toBuffer()],PROGRAM)[0];}
 
-let pairsCache=[], heroMode='nav';
+let pairsCache=[], heroMode='usd';
 let searchTerm='', sortKey='tvl', page=0;
 const PAGE_SIZE=12, prevSnap={}, bumpedAt={};
 // Pinned vault: stacSOL / Staccana (Ct1Z…sgo4), or any UGC named "stac".
@@ -480,15 +480,15 @@ async function renderVault(p,scroll){
       <div class="vhero-sub">${pairLabel(p)} · ◆ ${p.ammCount} AMM leg${p.ammCount===1?'':'s'} · NAV <b style="color:var(--green)">${p.navPerShare?fmt(p.navPerShare,6):'—'}</b></div>
       ${m.description?`<div class="vhero-desc">${m.description}</div>`:''}</div></div>
     <div class="mstats" style="margin:18px 0">
-      <div class="mstat"><div class="k">NAV / share</div><div class="v" style="color:var(--green)">${p.navPerShare?fmt(p.navPerShare,6):'—'}</div></div>
+      <div class="mstat"><div class="k">Token price (USD)</div><div class="v" style="color:var(--green)">${p.navUsd&&p.navUsd>0?'$'+fmt(p.navUsd,4):(p.navPerShare?fmt(p.navPerShare,6):'—')}</div></div>
       <div class="mstat"><div class="k">Share supply</div><div class="v">${fmt(Number(p.shareSupply)/10**p.shareDecimals,3)}</div></div>
       <div class="mstat"><div class="k">Reserves</div><div class="v">${fmt(Number(p.reservesCommon)/10**p.shareDecimals,3)}</div></div>
     </div>
     <div class="hero-chart"><div class="hc-head"><div class="t">NAV / share over time</div>
       <div class="v">${up?'▲ ':''}${p.navPerShare?fmt(p.navPerShare,6):'—'}</div></div>
       <svg class="chart" id="vaultChart" viewBox="0 0 600 200" preserveAspectRatio="none"></svg></div>
-    <div class="hero-chart" style="margin-top:14px"><div class="hc-head"><div class="t">USD value of underlying (A + B) over time</div>
-      <div class="v">$${fmt(p.usdTvl||0,0)}</div></div>
+    <div class="hero-chart" style="margin-top:14px"><div class="hc-head"><div class="t">Token price (USD) over time</div>
+      <div class="v">$${fmt(p.navUsd||0,4)}</div></div>
       <svg class="chart" id="vaultChartUsd" viewBox="0 0 600 200" preserveAspectRatio="none"></svg></div>
     <div class="sec"><h3>Tokens &amp; metadata</h3><div class="line"></div></div>
     <div class="meta-grid">${ugc}${unders}</div>
@@ -499,7 +499,7 @@ async function renderVault(p,scroll){
   fetch('/api/history/'+p.wrappedMint).then(r=>r.json()).then(d=>{
     const h=d.history||[];
     const nv=document.getElementById('vaultChart');if(nv)nv.innerHTML=areaChart(h.map(x=>x.nav||0),v=>v.toFixed(4));
-    const uv=document.getElementById('vaultChartUsd');if(uv)uv.innerHTML=areaChart(h.map(x=>x.usd||0),v=>'$'+fmt(v,0));
+    const uv=document.getElementById('vaultChartUsd');if(uv)uv.innerHTML=areaChart(h.map(x=>x.navUsd||0),v=>'$'+fmt(v,4));
   }).catch(()=>{});
   document.getElementById('backBtn').onclick=()=>{history.pushState({},'','/');showHome();};
   document.getElementById('v-zap').onclick=()=>openZapForPair(p);
@@ -534,12 +534,13 @@ async function refresh(){
 
 function cardHTML(p){
   const up=p.navPerShare>1.0000001;
-  const delta=up?`▲ ${fmt((p.navPerShare-1)*100,3)}%`:'flat';
+  const usd=p.navUsd&&p.navUsd>0;
+  // Default headline = USD value of one wrapped share token; NAV/share as sub.
   return `
     <div class="chead">${headFor(p)}<span class="legs">◆ ${p.ammCount} AMM leg${p.ammCount===1?'':'s'}</span></div>
-    <div class="navbox"><div><div class="lab">NAV / share</div>
-      <div class="nav ${up?'up':'flat'}">${p.navPerShare?fmt(p.navPerShare,6):'—'}</div></div>
-      <div class="delta">${delta}</div></div>
+    <div class="navbox"><div><div class="lab">${usd?'Token price (USD)':'NAV / share'}</div>
+      <div class="nav ${up?'up':'flat'}">${usd?'$'+fmt(p.navUsd,4):(p.navPerShare?fmt(p.navPerShare,6):'—')}</div></div>
+      <div class="delta">${usd?'NAV '+fmt(p.navPerShare,5):(up?'▲':'flat')}</div></div>
     <svg class="spark"></svg>
     <div class="rows">
       <div class="row"><span>Share supply</span><b>${fmt(Number(p.shareSupply)/10**p.shareDecimals,3)}</b></div>
