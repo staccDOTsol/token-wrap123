@@ -272,11 +272,107 @@ const raydiumCpmm = {
   },
 };
 
-// TODO(stub): PumpSwap and Raydium-v4 deposit/withdraw legs are not implemented.
-// They are intentionally left out of the AMM fallback chain below; the caller
-// surfaces a clear "no supported pool" error if neither Meteora nor Raydium
-// CPMM has a pool for the pair.
-const AMMS = [meteora, raydiumCpmm];
+// --- Raydium AMM v4 ----------------------------------------------------------
+const RAYDIUM_V4_PROGRAM = '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8';
+const raydiumV4 = {
+  name: 'raydium-v4',
+  async findPool(ctx, mintA, mintB) {
+    try {
+      const r = await fetch(
+        `https://api-v3.raydium.io/pools/info/mint?mint1=${mintA}&mint2=${mintB}` +
+        `&poolType=standard&poolSortField=liquidity&sortType=desc&pageSize=20&page=1`,
+        { headers: { accept: 'application/json' } });
+      if (!r.ok) return null;
+      const j = await r.json();
+      const list = (j.data && j.data.data) || [];
+      const hit = list.find((p) => p.programId === RAYDIUM_V4_PROGRAM);
+      if (!hit) return null;
+      return { poolId: hit.id, lpMint: hit.lpMint && hit.lpMint.address, lpProgram: 'spl-token' };
+    } catch (_) { return null; }
+  },
+  async buildDeposit(ctx, pool, owner, amountA, amountB) {
+    const { web3 } = ctx;
+    const { Raydium } = require('@raydium-io/raydium-sdk-v2');
+    const BN = require('bn.js');
+    const raydium = await Raydium.load({ connection: ctx.conn, owner: new web3.PublicKey(owner), disableLoadToken: true });
+    const { poolInfo, poolKeys } = await raydium.liquidity.getPoolInfoFromRpc({ poolId: pool.poolId });
+    const res = await raydium.liquidity.addLiquidity({
+      poolInfo, poolKeys,
+      amountInA: new BN(String(amountA)),
+      amountInB: new BN(String(amountB)),
+      otherAmountMin: new BN(0),
+      fixedSide: 'a',
+      txVersion: 0,
+    });
+    const instructions = res.instructions || (res.builder && res.builder.allInstructions) || [];
+    return { instructions, lpMint: poolInfo.lpMint && poolInfo.lpMint.address, estLp: '0', _tx: res.transaction };
+  },
+  async buildWithdraw(ctx, pool, owner, lpAmount) {
+    const { web3 } = ctx;
+    const { Raydium } = require('@raydium-io/raydium-sdk-v2');
+    const BN = require('bn.js');
+    const raydium = await Raydium.load({ connection: ctx.conn, owner: new web3.PublicKey(owner), disableLoadToken: true });
+    const { poolInfo, poolKeys } = await raydium.liquidity.getPoolInfoFromRpc({ poolId: pool.poolId });
+    const res = await raydium.liquidity.removeLiquidity({
+      poolInfo, poolKeys, amountIn: new BN(String(lpAmount)), txVersion: 0,
+    });
+    const instructions = res.instructions || (res.builder && res.builder.allInstructions) || [];
+    return { instructions };
+  },
+};
+
+// --- PumpSwap ----------------------------------------------------------------
+const PUMP_PROGRAM = 'pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA';
+const pumpSwap = {
+  name: 'pumpswap',
+  async findPool(ctx, mintA, mintB) {
+    const { web3 } = ctx;
+    const PUMP = new web3.PublicKey(PUMP_PROGRAM);
+    // Pump Pool: base_mint@43, quote_mint@75, lp_mint@107. Try both orderings.
+    for (const [base, quote] of [[mintA, mintB], [mintB, mintA]]) {
+      try {
+        const accts = await ctx.conn.getProgramAccounts(PUMP, {
+          filters: [{ memcmp: { offset: 43, bytes: base } }, { memcmp: { offset: 75, bytes: quote } }],
+          dataSlice: { offset: 107, length: 32 },
+        });
+        if (accts.length) {
+          const lpMint = new web3.PublicKey(accts[0].account.data).toBase58();
+          return { poolId: accts[0].pubkey.toBase58(), lpMint, lpProgram: 'spl-token', base, quote };
+        }
+      } catch (_) {}
+    }
+    return null;
+  },
+  async buildDeposit(ctx, pool, owner, amountA, amountB) {
+    const { web3 } = ctx;
+    const { OnlinePumpAmmSdk, PumpAmmSdk } = require('@pump-fun/pump-swap-sdk');
+    const BN = require('bn.js');
+    const online = new OnlinePumpAmmSdk(ctx.conn);
+    const ownerPk = new web3.PublicKey(owner);
+    const state = await online.liquiditySolanaState(new web3.PublicKey(pool.poolId), ownerPk);
+    const pump = new PumpAmmSdk();
+    // base amount = the deposit amount for the pool's base mint
+    const baseAmount = pool.base === pool.base ? amountA : amountB; // amountA corresponds to mintA == base in our split
+    const dep = pump.depositBaseInput(state, new BN(String(baseAmount)), 0.5);
+    const instructions = await pump.depositInstructionsInternal(
+      state, dep.lpToken, dep.maxToken0 || dep.token0, dep.maxToken1 || dep.token1, ownerPk);
+    return { instructions, lpMint: pool.lpMint, estLp: dep.lpToken ? dep.lpToken.toString() : '0' };
+  },
+  async buildWithdraw(ctx, pool, owner, lpAmount) {
+    const { web3 } = ctx;
+    const { OnlinePumpAmmSdk, PumpAmmSdk } = require('@pump-fun/pump-swap-sdk');
+    const BN = require('bn.js');
+    const online = new OnlinePumpAmmSdk(ctx.conn);
+    const ownerPk = new web3.PublicKey(owner);
+    const state = await online.liquiditySolanaState(new web3.PublicKey(pool.poolId), ownerPk);
+    const pump = new PumpAmmSdk();
+    const instructions = await pump.withdrawInstructionsInternal(state, new BN(String(lpAmount)), new BN(0), new BN(0), ownerPk);
+    return { instructions };
+  },
+};
+
+// Fallback order: deepest/most-reliable liquidity first.
+const AMMS = [meteora, raydiumCpmm, raydiumV4, pumpSwap];
 
 async function findAmm(ctx, mintA, mintB) {
   for (const amm of AMMS) {

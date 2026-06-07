@@ -397,14 +397,15 @@ async function refresh(){
       </div>
       <div class="mint">${p.mintA}<br>${p.mintB}</div>
       <div class="cta">
-        <button class="btn wrapbtn" data-wm="${p.wrappedMint}">Wrap LP</button>
-        <button class="btn ghost unwrapbtn" data-wm="${p.wrappedMint}">Unwrap</button>
+        <button class="btn zapbtn" data-wm="${p.wrappedMint}">⚡ Zap</button>
+        <button class="btn ghost morebtn" data-wm="${p.wrappedMint}" style="flex:none;width:50px" title="More">⋯</button>
       </div>`;
     grid.appendChild(el);
   }
+  const byWm=wm=>pairs.find(x=>x.wrappedMint===wm);
   document.querySelectorAll('.card').forEach((el,i)=>el.onclick=()=>openModal(pairs[i]));
-  document.querySelectorAll('.wrapbtn').forEach(b=>b.onclick=(e)=>{e.stopPropagation();wrapFlow(pairs.find(x=>x.wrappedMint===b.dataset.wm));});
-  document.querySelectorAll('.unwrapbtn').forEach(b=>b.onclick=(e)=>{e.stopPropagation();alert('Unwrap via CLI: spl-lp-wrap unwrap');});
+  document.querySelectorAll('.zapbtn').forEach(b=>b.onclick=(e)=>{e.stopPropagation();openZapForPair(byWm(b.dataset.wm));});
+  document.querySelectorAll('.morebtn').forEach(b=>b.onclick=(e)=>{e.stopPropagation();openMore(byWm(b.dataset.wm));});
   if(wallet)renderHoldings(pairs);
 }
 
@@ -479,6 +480,33 @@ async function createFlow(){
     const s=await window.solana.signAndSendTransaction(tx);
     st.textContent='Created! '+(s.signature||s);
   }catch(e){st.textContent='Failed: '+(e.message||e);}
+}
+
+// Open the Zap modal pre-scoped to a card's pair.
+function openZapForPair(p){
+  const a=document.getElementById('z-a'),b=document.getElementById('z-b'),wm=document.getElementById('z-wm');
+  if(a)a.value=p.mintA; if(b)b.value=p.mintB; if(wm)wm.value=p.wrappedMint;
+  document.getElementById('zmodal').classList.add('show');
+}
+// "…" action sheet: Wrap LP directly / Unwrap.
+function openMore(p){
+  let m=document.getElementById('moresheet');
+  if(!m){
+    m=document.createElement('div');m.className='modal';m.id='moresheet';
+    m.innerHTML=`<div class="sheet" style="max-width:360px"><span class="x" id="morex">✕</span>
+      <h2 style="margin-bottom:6px">More actions</h2>
+      <p style="color:var(--dim);font-size:12px;margin:0 0 14px">Advanced — most users should just Zap.</p>
+      <div style="display:grid;gap:10px">
+        <button class="btn" id="more-wrap">Wrap LP directly</button>
+        <button class="btn ghost" id="more-unwrap">Unwrap</button>
+      </div></div>`;
+    document.body.appendChild(m);
+    m.onclick=e=>{if(e.target.id==='moresheet')m.classList.remove('show');};
+    m.querySelector('#morex').onclick=()=>m.classList.remove('show');
+  }
+  m.querySelector('#more-wrap').onclick=()=>{m.classList.remove('show');wrapFlow(p);};
+  m.querySelector('#more-unwrap').onclick=()=>{m.classList.remove('show');alert('UI unwrap is coming — for now: spl-lp-wrap unwrap (CLI)');};
+  m.classList.add('show');
 }
 
 async function wrapFlow(p){
