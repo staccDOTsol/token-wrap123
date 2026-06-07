@@ -197,6 +197,13 @@ const app = express();
 app.set('trust proxy', true);
 app.use(express.json({ limit: '2mb' }));
 
+// SOL zap endpoints (lazy-require heavy SDKs inside handlers; boots offline).
+try {
+  require('./zap').register(app);
+} catch (e) {
+  console.error('zap module failed to load (dashboard unaffected):', e.message);
+}
+
 // Accept an image + name/symbol, persist the image and a Metaplex-standard JSON
 // manifest to the volume, and return the manifest URL to use as the token uri.
 app.post('/api/upload', upload.single('image'), (req, res) => {
