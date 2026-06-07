@@ -82,6 +82,7 @@ async function resolveMeta(mints) {
         const c = a.content || {}, md = c.metadata || {};
         metaCache.set(a.id, {
           name: md.name || '', symbol: md.symbol || '',
+          description: md.description || '',
           image: (c.links && c.links.image) || (c.files && c.files[0] && c.files[0].uri) || null,
         });
       }
@@ -156,13 +157,16 @@ async function crank() {
       hist.push({ t: Date.now(), nav: navPerShare, supply: supply.toString(), reserves: reserves.toString() });
       if (hist.length > 1000) hist.shift();
     }
-    // attach token metadata + featured-token display rule
-    await resolveMeta([...new Set(pairs.flatMap((p) => [p.mintA, p.mintB]))]);
+    // attach token metadata + featured-token display rule. We also resolve the
+    // WRAPPED mint's own UGC metadata (creator-uploaded image/name/description),
+    // which is the hero of the card + vault page.
+    await resolveMeta([...new Set(pairs.flatMap((p) => [p.mintA, p.mintB, p.wrappedMint]))]);
     for (const p of pairs) {
       const a = { mint: p.mintA, ...metaCache.get(p.mintA), quote: QUOTES[p.mintA] || null };
       const b = { mint: p.mintB, ...metaCache.get(p.mintB), quote: QUOTES[p.mintB] || null };
       p.tokens = { a, b };
       p.display = buildDisplay(a, b);
+      p.meta = metaCache.get(p.wrappedMint) || { name: '', symbol: '', description: '', image: null };
     }
     pairs.sort((a, b) => Number(b.reservesCommon) - Number(a.reservesCommon));
     state.pairs = pairs;
@@ -254,10 +258,13 @@ function broadcast() {
 
 // --- SSR landing: inject the current snapshot so the page paints instantly ---
 const INDEX = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8');
-app.get('/', (_req, res) => {
+function renderApp(res) {
   const initial = JSON.stringify({ config: { programId: PROGRAM_ID.toBase58(), cluster: CLUSTER }, pairs: state.pairs, lastUpdate: state.lastUpdate });
   res.type('html').send(INDEX.replace('</head>', `<script>window.__INITIAL__=${initial}</script></head>`));
-});
+}
+app.get('/', (_req, res) => renderApp(res));
+// Deep-linkable vault page; client router reads the path.
+app.get('/vault/:mint', (_req, res) => renderApp(res));
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.listen(PORT, () => {

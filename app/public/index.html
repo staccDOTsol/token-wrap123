@@ -154,22 +154,24 @@
 
 <div class="modal" id="zmodal"><div class="sheet">
   <span class="x" id="zx">✕</span>
-  <h2>⚡ SOL Zap</h2>
-  <p style="color:var(--dim);font-size:13px;margin:.3em 0 1em">Zap <b>in</b>: SOL is split, swapped into both legs via Jupiter, deposited into the AMM, and the LP is wrapped into shares. Zap <b>out</b>: shares are unwrapped, liquidity removed, and both legs swapped back to SOL. Each step is a separate wallet signature.</p>
+  <h2 style="margin-bottom:2px">⚡ Zap <span id="z-pair" style="color:var(--green)"></span></h2>
+  <p style="color:var(--dim);font-size:12px;margin:.3em 0 1em">SOL in → auto-swapped, deposited &amp; wrapped into shares. Shares out → unwrapped &amp; back to SOL.</p>
   <div class="ztabs">
     <button id="zt-in" class="on">Zap In</button>
     <button id="zt-out">Zap Out</button>
   </div>
-  <div id="zpane-in" style="display:grid;gap:10px;margin-top:12px">
-    <input id="z-a" placeholder="Mint A (base58) — token or SOL mint" />
-    <input id="z-b" placeholder="Mint B (base58) — token or SOL mint" />
-    <input id="z-sol" type="number" step="0.001" min="0" placeholder="SOL amount to zap in (e.g. 0.1)" />
+  <input id="z-a" type="hidden" /><input id="z-b" type="hidden" /><input id="z-wm" type="hidden" />
+  <div id="zpane-in" style="display:grid;gap:10px;margin-top:14px">
+    <div class="zbal">Balance: <b id="z-solbal">–</b> SOL</div>
+    <input id="z-sol" type="number" step="0.001" min="0" placeholder="SOL amount" />
+    <div class="qbtns" id="qin"></div>
     <button class="btn ghost" id="z-quote">Get Quote</button>
     <button class="btn" id="z-in-go">Zap In</button>
   </div>
-  <div id="zpane-out" style="display:none;gap:10px;margin-top:12px">
-    <input id="z-wm" placeholder="Wrapped mint (base58)" />
+  <div id="zpane-out" style="display:none;gap:10px;margin-top:14px">
+    <div class="zbal">Balance: <b id="z-shbal">–</b> shares</div>
     <input id="z-shares" type="number" step="0.0001" min="0" placeholder="Shares to zap out" />
+    <div class="qbtns" id="qout"></div>
     <button class="btn" id="z-out-go">Zap Out</button>
   </div>
   <div id="z-quotebox" style="display:none;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-top:12px;font-size:13px"></div>
@@ -183,9 +185,32 @@
   .ztabs button{flex:1;font-family:inherit;font-weight:700;font-size:13px;padding:9px;border-radius:10px;
     background:var(--card);border:1px solid var(--line2);color:var(--dim);cursor:pointer}
   .ztabs button.on{background:var(--green);color:#05221a;border-color:var(--green)}
+  #zmodal input[type="hidden"]{display:none}
+  .zbal{font-size:12px;color:var(--dim)}
+  .qbtns{display:flex;gap:6px;flex-wrap:wrap}
+  .qbtns button{flex:1;min-width:46px;font-family:inherit;font-weight:600;font-size:12px;padding:8px 0;
+    border-radius:8px;background:var(--card);border:1px solid var(--line2);color:var(--dim);cursor:pointer}
+  .qbtns button:hover{border-color:var(--green);color:var(--green)}
+  /* vault page */
+  .vhero{display:flex;gap:16px;align-items:center}
+  .vhero-img{width:84px;height:84px;border-radius:18px;flex:none;object-fit:cover;border:1px solid var(--line2)}
+  .vhero-name{font-size:24px;font-weight:800;letter-spacing:-.5px}
+  .vhero-sub{color:var(--dim);font-size:13px;margin-top:4px}
+  .vhero-desc{color:var(--dim);font-size:13px;margin-top:8px;line-height:1.5;max-width:640px}
+  .meta-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}
+  .meta-card{display:flex;gap:12px;background:linear-gradient(180deg,var(--card2),var(--card));
+    border:1px solid var(--line);border-radius:14px;padding:14px}
+  .mav{width:46px;height:46px;border-radius:50%;flex:none;object-fit:cover}
+  .mc-tag{font-size:10px;font-weight:700;letter-spacing:.6px;color:var(--green)}
+  .mc-name{font-weight:700;font-size:15px;margin-top:2px}
+  .mc-sym{color:var(--dim);font-size:12px}
+  .mc-desc{color:var(--dim);font-size:12px;margin-top:6px;line-height:1.45}
+  .mc-mint{display:inline-block;margin-top:8px;font-size:11px;font-family:ui-monospace,monospace}
+  @media(max-width:560px){.vhero-img{width:64px;height:64px}.vhero-name{font-size:20px}.meta-grid{grid-template-columns:1fr}}
 </style>
 
 <div class="wrap">
+  <div id="home">
   <div class="hero">
     <h1>One wrapped token. <em>Every AMM's LP.</em></h1>
     <p>Wrap Raydium, PumpSwap & Meteora LP for a pair into a single NAV-bearing share token. Fees &amp; donations pump the NAV.</p>
@@ -222,6 +247,8 @@
     Program <code id="pid"></code><br>
     NAV = Σ(normalized reserves) / share supply · 3 bps mint &amp; burn (NAV + creator + deployer) · 1 bps transfer fee
   </div>
+  </div><!-- /#home -->
+  <div id="vaultpage" style="display:none"></div>
 </div>
 
 <div class="modal" id="modal"><div class="sheet">
@@ -258,13 +285,23 @@ const tlabel=t=>t.symbol||t.name||short(t.mint);
 const tav=t=>t.image
   ? `<img class="av" style="object-fit:cover" src="${t.image}" alt="${tlabel(t)}"/>`
   : avatar(t.mint,(t.symbol||t.name||'?').slice(0,3).toUpperCase());
-function headFor(p){
+function pairLabel(p){
   const d=p.display||{featured:[{mint:p.mintA,symbol:''}],quote:null};
   const f=d.featured;
-  const title=f.length===1
-    ? `${tlabel(f[0])}${d.quote?` <span style="color:var(--dim);font-weight:500">/ ${d.quote}</span>`:''}`
-    : `${tlabel(f[0])} / ${tlabel(f[1])}`;
-  return `${tav(f[0])}<div><div class="nm">${title}</div><div class="sub">${short(p.wrappedMint)}</div></div>`;
+  return f.length===1 ? `${tlabel(f[0])}${d.quote?` / ${d.quote}`:''}` : `${tlabel(f[0])} / ${tlabel(f[1])}`;
+}
+// Hero = the wrapped token's UGC metadata (creator image/name) when present,
+// falling back to the underlying pair.
+function heroAvatar(p){
+  const m=p.meta||{};
+  if(m.image) return `<img class="av" style="object-fit:cover" src="${m.image}" alt="${m.name||''}"/>`;
+  const d=p.display||{featured:[{mint:p.mintA,symbol:''}]};
+  return tav(d.featured[0]);
+}
+function headFor(p){
+  const m=p.meta||{}, pl=pairLabel(p);
+  const title=m.name||pl, sub=m.name?pl:short(p.wrappedMint);
+  return `${heroAvatar(p)}<div><div class="nm">${title}</div><div class="sub">${sub}</div></div>`;
 }
 
 async function boot(){
@@ -361,6 +398,72 @@ async function openModal(p){
   document.getElementById('modal').classList.add('show');
 }
 
+// ---------------- routing + vault page ----------------
+let currentVault=null, routed=false;
+function showHome(){currentVault=null;document.getElementById('vaultpage').style.display='none';document.getElementById('home').style.display='block';}
+function showVault(p){
+  currentVault=p.wrappedMint;
+  if(location.pathname!=='/vault/'+p.wrappedMint) history.pushState({},'','/vault/'+p.wrappedMint);
+  renderVault(p,true);
+}
+function route(){
+  const m=location.pathname.match(/^\/vault\/([1-9A-HJ-NP-Za-km-z]{32,44})$/);
+  if(m){const p=pairsCache.find(x=>x.wrappedMint===m[1]);if(p){currentVault=p.wrappedMint;renderVault(p,true);return;}}
+  showHome();
+}
+window.addEventListener('popstate',route);
+
+function metaCard(tag,img,fallbackSeed,fallbackLabel,name,sym,mint,desc){
+  const cluster=CFG.cluster;
+  const link=`https://solscan.io/token/${mint}${cluster==='devnet'?'?cluster=devnet':''}`;
+  const av=img?`<img class="mav" src="${img}" alt=""/>`:avatar(fallbackSeed,fallbackLabel);
+  return `<div class="meta-card">${av}<div class="mc-body">
+    <div class="mc-tag">${tag}</div>
+    <div class="mc-name">${name||short(mint)}</div>
+    <div class="mc-sym">${sym||''}</div>
+    ${desc?`<div class="mc-desc">${desc}</div>`:''}
+    <a class="mc-mint" href="${link}" target="_blank">${short(mint)} ↗</a></div></div>`;
+}
+async function renderVault(p,scroll){
+  document.getElementById('home').style.display='none';
+  const vp=document.getElementById('vaultpage');vp.style.display='block';
+  if(scroll)window.scrollTo(0,0);
+  const m=p.meta||{}, up=p.navPerShare>1.0000001;
+  const heroImg=m.image?`<img class="vhero-img" src="${m.image}" alt=""/>`
+    :`<div class="vhero-img" style="display:grid;place-items:center;background:linear-gradient(135deg,#1fe17c,#9bffcf);color:#06231a;font-weight:800">wLP</div>`;
+  // 2–3 metadata blocks: UGC wrapped token (hero) + featured underlyings.
+  const ugc=metaCard('WRAPPED · UGC',m.image,p.wrappedMint,'wLP',m.name,m.symbol||'wLP',p.wrappedMint,m.description);
+  const featured=(p.display&&p.display.featured)||[];
+  const unders=featured.map(t=>metaCard('UNDERLYING',t.image,t.mint,(t.symbol||'?').slice(0,3).toUpperCase(),tlabel(t),t.symbol,t.mint,'')).join('');
+  vp.innerHTML=`
+    <button class="btn ghost" id="backBtn" style="margin-bottom:16px">← Vaults</button>
+    <div class="vhero">${heroImg}
+      <div><div class="vhero-name">${m.name||pairLabel(p)}</div>
+      <div class="vhero-sub">${pairLabel(p)} · ◆ ${p.ammCount} AMM leg${p.ammCount===1?'':'s'} · NAV <b style="color:var(--green)">${p.navPerShare?fmt(p.navPerShare,6):'—'}</b></div>
+      ${m.description?`<div class="vhero-desc">${m.description}</div>`:''}</div></div>
+    <div class="mstats" style="margin:18px 0">
+      <div class="mstat"><div class="k">NAV / share</div><div class="v" style="color:var(--green)">${p.navPerShare?fmt(p.navPerShare,6):'—'}</div></div>
+      <div class="mstat"><div class="k">Share supply</div><div class="v">${fmt(Number(p.shareSupply)/10**p.shareDecimals,3)}</div></div>
+      <div class="mstat"><div class="k">Reserves</div><div class="v">${fmt(Number(p.reservesCommon)/10**p.shareDecimals,3)}</div></div>
+    </div>
+    <div class="hero-chart"><div class="hc-head"><div class="t">NAV / share over time</div>
+      <div class="v">${up?'▲ ':''}${p.navPerShare?fmt(p.navPerShare,6):'—'}</div></div>
+      <svg class="chart" id="vaultChart" viewBox="0 0 600 200" preserveAspectRatio="none"></svg></div>
+    <div class="sec"><h3>Tokens &amp; metadata</h3><div class="line"></div></div>
+    <div class="meta-grid">${ugc}${unders}</div>
+    <div class="cta" style="margin-top:20px;max-width:440px">
+      <button class="btn" id="v-zap">⚡ Zap</button>
+      <button class="btn ghost" id="v-wrap" style="flex:none;width:120px">Wrap LP</button>
+    </div>`;
+  fetch('/api/history/'+p.wrappedMint).then(r=>r.json()).then(d=>{
+    const el=document.getElementById('vaultChart');
+    if(el)el.innerHTML=areaChart((d.history||[]).map(h=>h.nav||0),v=>v.toFixed(4));
+  }).catch(()=>{});
+  document.getElementById('backBtn').onclick=()=>{history.pushState({},'','/');showHome();};
+  document.getElementById('v-zap').onclick=()=>openZapForPair(p);
+  document.getElementById('v-wrap').onclick=()=>wrapFlow(p);
+}
+
 async function refresh(){
   const data=await (await fetch('/api/pairs')).json();
   const pairs=data.pairs||[];
@@ -375,6 +478,7 @@ async function refresh(){
   let tvl=0;for(const p of pairs)tvl+=Number(p.reservesCommon)/10**p.shareDecimals;
   globalHist.push({t:Date.now(),nav:avgNav,tvl});if(globalHist.length>240)globalHist.shift();
   pairsCache=pairs;renderHero();
+  if(!routed){routed=true;route();}
 
   const grid=document.getElementById('grid');grid.innerHTML='';
   for(const p of pairs){
@@ -403,7 +507,7 @@ async function refresh(){
     grid.appendChild(el);
   }
   const byWm=wm=>pairs.find(x=>x.wrappedMint===wm);
-  document.querySelectorAll('.card').forEach((el,i)=>el.onclick=()=>openModal(pairs[i]));
+  document.querySelectorAll('.card').forEach((el,i)=>el.onclick=()=>showVault(pairs[i]));
   document.querySelectorAll('.zapbtn').forEach(b=>b.onclick=(e)=>{e.stopPropagation();openZapForPair(byWm(b.dataset.wm));});
   document.querySelectorAll('.morebtn').forEach(b=>b.onclick=(e)=>{e.stopPropagation();openMore(byWm(b.dataset.wm));});
   if(wallet)renderHoldings(pairs);
@@ -482,11 +586,37 @@ async function createFlow(){
   }catch(e){st.textContent='Failed: '+(e.message||e);}
 }
 
-// Open the Zap modal pre-scoped to a card's pair.
-function openZapForPair(p){
-  const a=document.getElementById('z-a'),b=document.getElementById('z-b'),wm=document.getElementById('z-wm');
-  if(a)a.value=p.mintA; if(b)b.value=p.mintB; if(wm)wm.value=p.wrappedMint;
+// Open the Zap modal pre-scoped to a card's pair (mints auto-filled, hidden).
+async function openZapForPair(p){
+  document.getElementById('z-a').value=p.mintA;
+  document.getElementById('z-b').value=p.mintB;
+  document.getElementById('z-wm').value=p.wrappedMint;
+  document.getElementById('z-pair').textContent=pairLabel(p);
+  document.getElementById('z-sol').value='';document.getElementById('z-shares').value='';
   document.getElementById('zmodal').classList.add('show');
+  let solBal=0, shBal=0;
+  if(wallet){
+    try{solBal=(await conn.getBalance(wallet))/1e9;}catch(_){}
+    try{const ata=getAssociatedTokenAddressSync(new PublicKey(p.wrappedMint),wallet,true,TOKEN_2022_PROGRAM_ID);
+      const bb=await conn.getTokenAccountBalance(ata);shBal=Number(bb.value.uiAmountString||0);}catch(_){}
+  }
+  document.getElementById('z-solbal').textContent=fmt(solBal,4);
+  document.getElementById('z-shbal').textContent=fmt(shBal,4);
+  buildQuick('qin','z-sol',[5,10,25,50,90],solBal,true);
+  buildQuick('qout','z-shares',[5,10,50,100],shBal,false);
+}
+// Quick % chips that fill the amount input from the relevant balance.
+function buildQuick(containerId,inputId,pcts,balance,isSol){
+  const c=document.getElementById(containerId);if(!c)return;c.innerHTML='';
+  for(const pct of pcts){
+    const btn=document.createElement('button');btn.textContent=pct+'%';
+    btn.onclick=()=>{
+      let v=balance*pct/100;
+      if(isSol&&pct>=90) v=Math.max(0,balance-0.01); // leave ~0.01 SOL for fees
+      document.getElementById(inputId).value = v>0 ? v.toFixed(isSol?4:6) : '';
+    };
+    c.appendChild(btn);
+  }
 }
 // "…" action sheet: Wrap LP directly / Unwrap.
 function openMore(p){
