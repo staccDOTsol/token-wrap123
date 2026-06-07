@@ -41,6 +41,20 @@
   .holds{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:18px}
   .hold{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 14px;font-size:13px}
   .hold b{color:var(--green)}
+  .vbar{display:flex;align-items:center;gap:10px;margin:8px 0 14px;flex-wrap:wrap}
+  .vbar h3{margin:0;font-size:15px;font-weight:700;color:var(--dim);text-transform:uppercase;letter-spacing:.6px}
+  .vsearch{flex:1;min-width:160px;font-family:inherit;background:var(--card);border:1px solid var(--line2);
+    color:var(--txt);border-radius:10px;padding:9px 13px;font-size:13px}
+  .vsearch:focus{outline:none;border-color:var(--green)}
+  .vsort{font-family:inherit;background:var(--card);border:1px solid var(--line2);color:var(--txt);
+    border-radius:10px;padding:9px 12px;font-size:13px;cursor:pointer}
+  .pager{display:flex;align-items:center;justify-content:center;gap:14px;margin-top:18px}
+  .pager .btn[disabled]{opacity:.4;cursor:not-allowed}
+  .pinfo{color:var(--dim);font-size:13px}
+  @keyframes bump{0%{transform:translateY(0)}12%{transform:translateX(-4px) rotate(-.5deg)}
+    28%{transform:translateX(4px) rotate(.5deg)}44%{transform:translateX(-3px)}60%{transform:translateX(3px)}
+    78%{transform:translateX(-1px)}100%{transform:translateY(0)}}
+  .card.bump{animation:bump .55s ease;border-color:var(--green)!important;box-shadow:0 0 30px rgba(31,225,124,.45)}
   .sec{display:flex;align-items:center;gap:10px;margin:8px 0 14px}
   .sec h3{margin:0;font-size:15px;font-weight:700;color:var(--dim);text-transform:uppercase;letter-spacing:.6px}
   .sec .line{flex:1;height:1px;background:var(--line)}
@@ -240,8 +254,18 @@
   <div id="wallet"></div>
   <div class="holds" id="holdings"></div>
 
-  <div class="sec"><h3>Vaults</h3><div class="line"></div></div>
+  <div class="vbar">
+    <h3>Vaults</h3>
+    <input id="vsearch" class="vsearch" placeholder="Search name, symbol, mint…" />
+    <select id="vsort" class="vsort">
+      <option value="tvl">Top TVL</option>
+      <option value="nav">Highest NAV</option>
+      <option value="legs">Most AMM legs</option>
+      <option value="supply">Most supply</option>
+    </select>
+  </div>
   <div class="grid" id="grid"></div>
+  <div id="pager" class="pager"></div>
 
   <div class="foot">
     Program <code id="pid"></code><br>
@@ -316,6 +340,8 @@ async function boot(){
   document.getElementById('t-tvl').onclick=()=>setMode('tvl');
   document.getElementById('mx').onclick=()=>document.getElementById('modal').classList.remove('show');
   document.getElementById('modal').onclick=e=>{if(e.target.id==='modal')document.getElementById('modal').classList.remove('show');};
+  document.getElementById('vsearch').oninput=(e)=>{searchTerm=e.target.value;page=0;renderGrid();};
+  document.getElementById('vsort').onchange=(e)=>{sortKey=e.target.value;page=0;renderGrid();};
   document.getElementById('createBtn').onclick=()=>document.getElementById('cmodal').classList.add('show');
   document.getElementById('cx').onclick=()=>document.getElementById('cmodal').classList.remove('show');
   document.getElementById('c-go').onclick=createFlow;
@@ -343,6 +369,8 @@ function authPda(m){return PublicKey.findProgramAddressSync([enc.encode('authori
 function configPda(m){return PublicKey.findProgramAddressSync([enc.encode('config'),m.toBuffer()],PROGRAM)[0];}
 
 let pairsCache=[], heroMode='nav';
+let searchTerm='', sortKey='tvl', page=0;
+const PAGE_SIZE=12, prevSnap={}, bumpedAt={};
 const globalHist=[]; // {t, nav, tvl}
 
 function spark(hist){
@@ -480,37 +508,76 @@ async function refresh(){
   pairsCache=pairs;renderHero();
   if(!routed){routed=true;route();}
 
-  const grid=document.getElementById('grid');grid.innerHTML='';
+  // pump-style bump: flag pairs whose NAV/supply changed since last tick.
   for(const p of pairs){
-    const hist=(await (await fetch('/api/history/'+p.wrappedMint)).json()).history;
-    const up=p.navPerShare>1.0000001;
-    const delta=up?`▲ ${fmt((p.navPerShare-1)*100,3)}%`:'flat';
-    const el=document.createElement('div');el.className='card';
-    el.innerHTML=`
-      <div class="chead">
-        ${headFor(p)}
-        <span class="legs">◆ ${p.ammCount} AMM leg${p.ammCount===1?'':'s'}</span>
-      </div>
-      <div class="navbox"><div><div class="lab">NAV / share</div>
-        <div class="nav ${up?'up':'flat'}">${p.navPerShare?fmt(p.navPerShare,6):'—'}</div></div>
-        <div class="delta">${delta}</div></div>
-      ${spark(hist)}
-      <div class="rows">
-        <div class="row"><span>Share supply</span><b>${fmt(Number(p.shareSupply)/10**p.shareDecimals,3)}</b></div>
-        <div class="row"><span>Reserves (norm)</span><b>${fmt(Number(p.reservesCommon)/10**p.shareDecimals,3)}</b></div>
-      </div>
-      <div class="mint">${p.mintA}<br>${p.mintB}</div>
-      <div class="cta">
-        <button class="btn zapbtn" data-wm="${p.wrappedMint}">⚡ Zap</button>
-        <button class="btn ghost morebtn" data-wm="${p.wrappedMint}" style="flex:none;width:50px" title="More">⋯</button>
-      </div>`;
-    grid.appendChild(el);
+    const prev=prevSnap[p.wrappedMint];
+    if(prev&&(prev.nav!==p.navPerShare||prev.supply!==p.shareSupply)) bumpedAt[p.wrappedMint]=Date.now();
+    prevSnap[p.wrappedMint]={nav:p.navPerShare,supply:p.shareSupply};
   }
-  const byWm=wm=>pairs.find(x=>x.wrappedMint===wm);
-  document.querySelectorAll('.card').forEach((el,i)=>el.onclick=()=>showVault(pairs[i]));
-  document.querySelectorAll('.zapbtn').forEach(b=>b.onclick=(e)=>{e.stopPropagation();openZapForPair(byWm(b.dataset.wm));});
-  document.querySelectorAll('.morebtn').forEach(b=>b.onclick=(e)=>{e.stopPropagation();openMore(byWm(b.dataset.wm));});
-  if(wallet)renderHoldings(pairs);
+  renderGrid();
+  if(wallet)renderHoldings(pairsCache);
+}
+
+function cardHTML(p){
+  const up=p.navPerShare>1.0000001;
+  const delta=up?`▲ ${fmt((p.navPerShare-1)*100,3)}%`:'flat';
+  return `
+    <div class="chead">${headFor(p)}<span class="legs">◆ ${p.ammCount} AMM leg${p.ammCount===1?'':'s'}</span></div>
+    <div class="navbox"><div><div class="lab">NAV / share</div>
+      <div class="nav ${up?'up':'flat'}">${p.navPerShare?fmt(p.navPerShare,6):'—'}</div></div>
+      <div class="delta">${delta}</div></div>
+    <svg class="spark"></svg>
+    <div class="rows">
+      <div class="row"><span>Share supply</span><b>${fmt(Number(p.shareSupply)/10**p.shareDecimals,3)}</b></div>
+      <div class="row"><span>Reserves (norm)</span><b>${fmt(Number(p.reservesCommon)/10**p.shareDecimals,3)}</b></div>
+    </div>
+    <div class="cta">
+      <button class="btn zapbtn">⚡ Zap</button>
+      <button class="btn ghost morebtn" style="flex:none;width:50px" title="More">⋯</button>
+    </div>`;
+}
+function renderGrid(){
+  const grid=document.getElementById('grid');const now=Date.now();
+  let list=pairsCache.slice();
+  const q=searchTerm.trim().toLowerCase();
+  if(q) list=list.filter(p=>{
+    const m=p.meta||{};
+    const feat=((p.display&&p.display.featured)||[]).map(t=>`${t.name} ${t.symbol}`).join(' ');
+    return `${m.name} ${m.symbol} ${p.wrappedMint} ${p.mintA} ${p.mintB} ${pairLabel(p)} ${feat}`.toLowerCase().includes(q);
+  });
+  const sorters={
+    tvl:(a,b)=>Number(b.reservesCommon)-Number(a.reservesCommon),
+    nav:(a,b)=>b.navPerShare-a.navPerShare,
+    legs:(a,b)=>b.ammCount-a.ammCount,
+    supply:(a,b)=>Number(b.shareSupply)-Number(a.shareSupply),
+  };
+  list.sort(sorters[sortKey]||sorters.tvl);
+  // recently-bumped float to the top (stable sort keeps the chosen order within groups)
+  list.sort((a,b)=>((bumpedAt[b.wrappedMint]||0)>now-8000?1:0)-((bumpedAt[a.wrappedMint]||0)>now-8000?1:0));
+  const pages=Math.max(1,Math.ceil(list.length/PAGE_SIZE));
+  if(page>=pages)page=pages-1; if(page<0)page=0;
+  const visible=list.slice(page*PAGE_SIZE,(page+1)*PAGE_SIZE);
+  grid.innerHTML='';
+  for(const p of visible){
+    const el=document.createElement('div');
+    el.className='card'+(((bumpedAt[p.wrappedMint]||0)>now-2500)?' bump':'');
+    el.innerHTML=cardHTML(p);
+    el.onclick=()=>showVault(p);
+    el.querySelector('.zapbtn').onclick=(e)=>{e.stopPropagation();openZapForPair(p);};
+    el.querySelector('.morebtn').onclick=(e)=>{e.stopPropagation();openMore(p);};
+    grid.appendChild(el);
+    fetch('/api/history/'+p.wrappedMint).then(r=>r.json()).then(d=>{const sv=el.querySelector('.spark');if(sv)sv.outerHTML=spark(d.history);}).catch(()=>{});
+  }
+  const pager=document.getElementById('pager');
+  if(pages<=1){pager.innerHTML='';}
+  else{
+    pager.innerHTML=`<button class="btn ghost" id="pprev" ${page===0?'disabled':''}>← Prev</button>
+      <span class="pinfo">${page+1} / ${pages} · ${list.length} vaults</span>
+      <button class="btn ghost" id="pnext" ${page>=pages-1?'disabled':''}>Next →</button>`;
+    const pp=document.getElementById('pprev'),pn=document.getElementById('pnext');
+    if(pp)pp.onclick=()=>{page=Math.max(0,page-1);renderGrid();window.scrollTo({top:0,behavior:'smooth'});};
+    if(pn)pn.onclick=()=>{page=page+1;renderGrid();window.scrollTo({top:0,behavior:'smooth'});};
+  }
 }
 
 async function renderHoldings(pairs){
