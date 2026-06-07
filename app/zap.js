@@ -854,6 +854,82 @@ async function swapOut(req, res) {
   }
 }
 
+// ----------------------------------------------------------- Jito -----------
+const JITO_BE = process.env.JITO_BE || 'https://mainnet.block-engine.jito.wtf/api/v1/bundles';
+const JITO_TIPS = [
+  '96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5','HFqU5x63VTqvQss8hp11i4wVV8bD44PvwucfZ2bU7gRe',
+  'Cw8CFyM9FkoMi7K7Crf6HNQqf4uEMzpKw6QNghXLvLkY','ADaUMid9yfUytqMBgopwjb2DTLSokTSzL1zt6iGPaS49',
+  'DfXygSm4jCyNCybVYYK6DwvWqjKee8pbDmJGcLWNDXjh','ADuUkR4vqLUMWXxW9gh6D6L8pMSawimctcNZ5pGwDcEt',
+  'DttWaMuVvTiduZRnguLF7jNxTgiMBZ1hyAumKUiL2KRL','3AVi9Tg9Uo68tJfuvoKvqKNWKkC5wPdSSdeBnizKZ6jT',
+];
+function jitoTipIx(web3, ownerPk, lamports) {
+  const tip = JITO_TIPS[Math.floor(Math.random() * JITO_TIPS.length)];
+  return web3.SystemProgram.transfer({ fromPubkey: ownerPk, toPubkey: new web3.PublicKey(tip), lamports });
+}
+// Wrap native SOL into the owner's WSOL ATA (Jupiter can't swap SOL->SOL).
+function wrapSolIxs(ctx, ownerPk, lamports) {
+  const { web3, splToken } = ctx;
+  const wsol = new web3.PublicKey(WSOL);
+  const ata = splToken.getAssociatedTokenAddressSync(wsol, ownerPk, true);
+  return [
+    splToken.createAssociatedTokenAccountIdempotentInstruction(ownerPk, ata, ownerPk, wsol),
+    web3.SystemProgram.transfer({ fromPubkey: ownerPk, toPubkey: ata, lamports }),
+    splToken.createSyncNativeInstruction(ata),
+  ];
+}
+
+// POST /api/zap/bundle {owner, mintA, mintB, solLamports, tipLamports?}
+// Returns the unsigned txs for the ATOMIC part (WSOL-wrap / Jupiter swaps +
+// AMM deposit + Jito tip). The client signs them with ONE signAllTransactions
+// and submits via /api/zap/submit-bundle. The wrap (which needs the realized LP
+// balance) is a separate quick step afterwards.
+async function zapBundle(req, res) {
+  try {
+    const { web3, splToken } = lazy();
+    const { owner, mintA, mintB, solLamports, tipLamports } = req.body || {};
+    if (!owner || !mintA || !mintB || !solLamports) return res.status(400).json({ error: 'owner, mintA, mintB, solLamports required' });
+    const conn = await getConn(web3);
+    const ctx = makeCtx(web3, splToken, conn);
+    const ownerPk = new web3.PublicKey(owner);
+    const half = Math.floor(Number(solLamports) / 2), otherHalf = Number(solLamports) - half;
+
+    const found = await findAmm(ctx, mintA, mintB);
+    if (!found) return res.status(400).json({ error: 'no supported AMM pool (Meteora / Raydium CPMM / v4 / Pump) for this pair' });
+
+    const txs = []; let amountA, amountB;
+    // Leg A
+    if (mintA === WSOL) { txs.push({ label: 'Wrap SOL (A)', tx: await buildV0(web3, conn, ownerPk, wrapSolIxs(ctx, ownerPk, half)) }); amountA = String(half); }
+    else { const q = await jupQuote({ inputMint: WSOL, outputMint: mintA, amount: half }); txs.push({ label: 'Swap SOL→A', b64: await jupSwapTx({ quoteResponse: q, userPublicKey: owner }) }); amountA = q.otherAmountThreshold || q.outAmount; }
+    // Leg B
+    if (mintB === WSOL) { txs.push({ label: 'Wrap SOL (B)', tx: await buildV0(web3, conn, ownerPk, wrapSolIxs(ctx, ownerPk, otherHalf)) }); amountB = String(otherHalf); }
+    else { const q = await jupQuote({ inputMint: WSOL, outputMint: mintB, amount: otherHalf }); txs.push({ label: 'Swap SOL→B', b64: await jupSwapTx({ quoteResponse: q, userPublicKey: owner }) }); amountB = q.otherAmountThreshold || q.outAmount; }
+    // Deposit (uses conservative min-out amounts so it can't over-spend post-swap)
+    const dep = await found.amm.buildDeposit(ctx, found.pool, owner, amountA, amountB);
+    const tip = jitoTipIx(web3, ownerPk, tipLamports ? Number(tipLamports) : 100000);
+    txs.push({ label: `Deposit ${found.amm.name} + tip`, tx: await buildV0(web3, conn, ownerPk, [...dep.instructions, tip]) });
+
+    res.json({
+      steps: txs.map(t => ({ label: t.label, txBase64: t.b64 || txToBase64(t.tx) })),
+      amm: found.amm.name, pool: found.pool.poolId, lpMint: found.pool.lpMint || (dep.lpMint),
+    });
+  } catch (e) { res.status(500).json({ error: String(e.message || e) }); }
+}
+
+// POST /api/zap/submit-bundle {signed: [base64,...]} -> Jito sendBundle
+async function submitBundle(req, res) {
+  try {
+    const signed = (req.body && req.body.signed) || [];
+    if (!signed.length) return res.status(400).json({ error: 'signed[] required' });
+    const r = await fetch(JITO_BE, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'sendBundle', params: [signed, { encoding: 'base64' }] }),
+    });
+    const j = await r.json();
+    if (j.error) return res.status(502).json({ error: j.error.message || JSON.stringify(j.error) });
+    res.json({ bundleId: j.result });
+  } catch (e) { res.status(500).json({ error: String(e.message || e) }); }
+}
+
 function register(app) {
   app.post('/api/zap/quote', quote);
   app.post('/api/zap/in', zapIn);
@@ -862,6 +938,8 @@ function register(app) {
   app.post('/api/zap/out', zapOut);
   app.post('/api/zap/withdraw', withdraw);
   app.post('/api/zap/swapout', swapOut);
+  app.post('/api/zap/bundle', zapBundle);
+  app.post('/api/zap/submit-bundle', submitBundle);
 }
 
 module.exports = { register };

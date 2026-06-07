@@ -806,42 +806,39 @@ async function zapQuote(){
     zStatus('Quote ready.');
   }catch(e){zStatus('Quote failed: '+(e.message||e));}
 }
+const b64ToBytes=b=>Uint8Array.from(atob(b),c=>c.charCodeAt(0));
+const bytesToB64=u=>{let s='';for(let i=0;i<u.length;i++)s+=String.fromCharCode(u[i]);return btoa(s);};
+// Jito-bundled zap-in: WSOL-wrap/swaps + deposit + tip land ATOMICALLY in one
+// block (one signAllTransactions approval). Then wrap the realized LP.
 async function zapInFlow(){
   if(!wallet){alert('Connect wallet first');return;}
   try{
     const mintA=document.getElementById('z-a').value.trim();
     const mintB=document.getElementById('z-b').value.trim();
     const sol=parseFloat(document.getElementById('z-sol').value||'0');
-    if(!mintA||!mintB||!(sol>0)){zStatus('Enter both mints and a SOL amount.');return;}
+    if(!mintA||!mintB||!(sol>0)){zStatus('Enter a SOL amount.');return;}
     const owner=wallet.toBase58();
     const solLamports=Math.floor(sol*1e9);
-    // record pre-swap balances so we can compute swap outputs after.
-    const preA=mintA===WSOL_MINT?0n:await readBal(mintA);
-    const preB=mintB===WSOL_MINT?0n:await readBal(mintB);
-    // Step 1: Jupiter swaps (server returns ordered Jupiter txs).
-    zStatus('Building swaps…');
-    const swap=await zPost('/api/zap/in',{owner,mintA,mintB,solLamports});
-    await runSteps(swap.steps);
-    if(!swap.amm){zStatus('Swaps done. No supported AMM pool for this pair, so add-liquidity/wrap are unavailable.');return;}
-    // Re-read balances to learn the real swap outputs (stepwise).
-    const postA=mintA===WSOL_MINT?BigInt(Math.floor(solLamports/2)):await readBal(mintA);
-    const postB=mintB===WSOL_MINT?BigInt(solLamports-Math.floor(solLamports/2)):await readBal(mintB);
-    const amountA=(postA-preA>0n?postA-preA:postA).toString();
-    const amountB=(postB-preB>0n?postB-preB:postB).toString();
-    // Step 2: add liquidity with real post-swap amounts.
-    zStatus('Building add-liquidity…');
-    const dep=await zPost('/api/zap/deposit',{owner,mintA,mintB,amountA,amountB});
-    const lpMint=dep.lpMint;
-    const preLp=lpMint?await readBal(lpMint):0n;
-    await runSteps(dep.steps);
-    // Re-read LP balance to learn how much LP we received.
-    const postLp=lpMint?await readBal(lpMint):0n;
-    const lpAmount=(postLp-preLp>0n?postLp-preLp:postLp).toString();
-    // Step 3: wrap LP -> shares (CreatePairMint first if needed, server decides).
-    zStatus('Building wrap…');
-    const wr=await zPost('/api/zap/wrap',{owner,mintA,mintB,lpMint,lpAmount});
-    await runSteps(wr.steps);
-    zStatus('⚡ Zap-in complete! Wrapped mint: '+wr.wrappedMint);
+    zStatus('Building atomic Jito bundle…');
+    const bundle=await zPost('/api/zap/bundle',{owner,mintA,mintB,solLamports});
+    const {VersionedTransaction}=await import('https://esm.sh/@solana/web3.js@1.95.3');
+    const txs=bundle.steps.map(s=>VersionedTransaction.deserialize(b64ToBytes(s.txBase64)));
+    zStatus(`Approve once — ${txs.length} txs bundled atomically…`);
+    const signed=await window.solana.signAllTransactions(txs);
+    zStatus('Submitting Jito bundle…');
+    const sub=await zPost('/api/zap/submit-bundle',{signed:signed.map(t=>bytesToB64(t.serialize()))});
+    zStatus('Bundle '+String(sub.bundleId||'').slice(0,8)+'… submitted. Waiting to land…');
+    const lpMint=bundle.lpMint;
+    let lpBal=lpMint?await readBal(lpMint):0n;
+    for(let i=0;i<8&&lpBal===0n;i++){await new Promise(r=>setTimeout(r,3000));lpBal=lpMint?await readBal(lpMint):0n;}
+    if(lpBal>0n){
+      zStatus('Bundle landed. Wrapping LP → shares…');
+      const wr=await zPost('/api/zap/wrap',{owner,mintA,mintB,lpMint,lpAmount:lpBal.toString()});
+      await runSteps(wr.steps);
+      zStatus('⚡ Zap complete! Wrapped: '+(wr.wrappedMint||''));
+    } else {
+      zStatus('Bundle submitted but LP not detected — it may not have landed (bump the tip or retry).');
+    }
     refresh();
   }catch(e){zStatus('Zap-in failed: '+(e.message||e));}
 }
