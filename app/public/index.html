@@ -203,6 +203,8 @@
 </div></div>
 
 <script type="module">
+import {Buffer} from 'https://esm.sh/buffer@6.0.3';
+globalThis.Buffer=globalThis.Buffer||Buffer;   // web3.js / PublicKey need a Buffer global in-browser
 import {Connection,PublicKey,Transaction,TransactionInstruction} from 'https://esm.sh/@solana/web3.js@1.95.3';
 import {getAssociatedTokenAddressSync,createAssociatedTokenAccountIdempotentInstruction,
         TOKEN_PROGRAM_ID,TOKEN_2022_PROGRAM_ID} from 'https://esm.sh/@solana/spl-token@0.4.8';
