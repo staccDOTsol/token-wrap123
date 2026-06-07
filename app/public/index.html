@@ -816,8 +816,24 @@ async function zapQuote(){
 }
 const b64ToBytes=b=>Uint8Array.from(atob(b),c=>c.charCodeAt(0));
 const bytesToB64=u=>{let s='';for(let i=0;i<u.length;i++)s+=String.fromCharCode(u[i]);return btoa(s);};
-// Jito-bundled zap-in: WSOL-wrap/swaps + deposit + tip land ATOMICALLY in one
-// block (one signAllTransactions approval). Then wrap the realized LP.
+// Rapid-fire a pre-signed tx through Helius (our /rpc proxy) until it confirms.
+async function fireUntilLanded(signedTx,label){
+  const raw=signedTx.serialize(); let sig=null;
+  for(let i=0;i<50;i++){
+    try{ sig=await conn.sendRawTransaction(raw,{skipPreflight:true,maxRetries:0}); }catch(_){}
+    await new Promise(r=>setTimeout(r,1200));
+    if(sig){
+      const st=(await conn.getSignatureStatuses([sig])).value[0];
+      if(st){
+        if(st.err) throw new Error((label||'tx')+' failed: '+JSON.stringify(st.err));
+        if(st.confirmationStatus==='confirmed'||st.confirmationStatus==='finalized') return sig;
+      }
+    }
+  }
+  throw new Error((label||'tx')+' did not land (blockhash expired) — retry');
+}
+// Zap-in: ONE signAll approval, then rapid-fire each leg via Helius IN ORDER
+// (swaps/wrap-SOL -> deposit), then wrap the realized LP. No Jito.
 async function zapInFlow(){
   if(!wallet){alert('Connect wallet first');return;}
   try{
@@ -827,25 +843,28 @@ async function zapInFlow(){
     if(!mintA||!mintB||!(sol>0)){zStatus('Enter a SOL amount.');return;}
     const owner=wallet.toBase58();
     const solLamports=Math.floor(sol*1e9);
-    zStatus('Building atomic Jito bundle…');
-    const bundle=await zPost('/api/zap/bundle',{owner,mintA,mintB,solLamports});
+    zStatus('Building zap…');
+    const bundle=await zPost('/api/zap/bundle',{owner,mintA,mintB,solLamports,tipLamports:0});
     const {VersionedTransaction}=await import('https://esm.sh/@solana/web3.js@1.95.3');
     const txs=bundle.steps.map(s=>VersionedTransaction.deserialize(b64ToBytes(s.txBase64)));
-    zStatus(`Approve once — ${txs.length} txs bundled atomically…`);
+    zStatus(`Approve once — ${txs.length} txs…`);
     const signed=await window.solana.signAllTransactions(txs);
-    zStatus('Submitting Jito bundle…');
-    const sub=await zPost('/api/zap/submit-bundle',{signed:signed.map(t=>bytesToB64(t.serialize()))});
-    zStatus('Bundle '+String(sub.bundleId||'').slice(0,8)+'… submitted. Waiting to land…');
+    for(let i=0;i<signed.length;i++){
+      zStatus(`Landing ${i+1}/${signed.length}: ${bundle.steps[i].label} (rapid-fire via Helius)…`);
+      await fireUntilLanded(signed[i],bundle.steps[i].label);
+    }
     const lpMint=bundle.lpMint;
     let lpBal=lpMint?await readBal(lpMint):0n;
-    for(let i=0;i<8&&lpBal===0n;i++){await new Promise(r=>setTimeout(r,3000));lpBal=lpMint?await readBal(lpMint):0n;}
+    for(let i=0;i<5&&lpBal===0n;i++){await new Promise(r=>setTimeout(r,2000));lpBal=lpMint?await readBal(lpMint):0n;}
     if(lpBal>0n){
-      zStatus('Bundle landed. Wrapping LP → shares…');
+      zStatus('Deposit landed. Wrapping LP → shares…');
       const wr=await zPost('/api/zap/wrap',{owner,mintA,mintB,lpMint,lpAmount:lpBal.toString()});
-      await runSteps(wr.steps);
+      const wtxs=wr.steps.map(s=>VersionedTransaction.deserialize(b64ToBytes(s.txBase64)));
+      const wsigned=await window.solana.signAllTransactions(wtxs);
+      for(const t of wsigned) await fireUntilLanded(t,'wrap');
       zStatus('⚡ Zap complete! Wrapped: '+(wr.wrappedMint||''));
     } else {
-      zStatus('Bundle submitted but LP not detected — it may not have landed (bump the tip or retry).');
+      zStatus('Swaps + deposit landed, but LP not detected — try Wrap from the card.');
     }
     refresh();
   }catch(e){zStatus('Zap-in failed: '+(e.message||e));}

@@ -911,8 +911,10 @@ async function zapBundle(req, res) {
     const depA = Math.floor(Number(amountA) * 0.97).toString();
     const depB = Math.floor(Number(amountB) * 0.97).toString();
     const dep = await found.amm.buildDeposit(ctx, found.pool, owner, depA, depB);
-    const tip = jitoTipIx(web3, ownerPk, tipLamports ? Number(tipLamports) : 500000);
-    txs.push({ label: `Deposit ${found.amm.name} + tip`, tx: await buildV0(web3, conn, ownerPk, [...dep.instructions, tip]) });
+    // tipLamports:0 -> no Jito tip (for the plain signAll + rapid-fire RPC path).
+    const tipL = tipLamports !== undefined ? Number(tipLamports) : 500000;
+    const depIxs = tipL > 0 ? [...dep.instructions, jitoTipIx(web3, ownerPk, tipL)] : dep.instructions;
+    txs.push({ label: `Deposit ${found.amm.name}${tipL > 0 ? ' + tip' : ''}`, tx: await buildV0(web3, conn, ownerPk, depIxs) });
 
     res.json({
       steps: txs.map(t => ({ label: t.label, txBase64: t.b64 || txToBase64(t.tx) })),
