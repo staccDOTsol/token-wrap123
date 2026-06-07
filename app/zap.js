@@ -212,7 +212,9 @@ const raydiumCpmm = {
       const j = await r.json();
       const list = (j.data && j.data.data) || [];
       // CPMM pools are programId Cpmm... ; "standard" covers CPMM + v4.
-      const hit = list.find((p) => p.type === 'Standard' || /cpmm/i.test(p.programId || ''));
+      // Match ONLY real CPMM pools by program id — Raydium v4 pools are also
+      // type "Standard" and must go to the v4 adapter, not be loaded as CPMM.
+      const hit = list.find((p) => p.programId === 'CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C');
       if (!hit) return null;
       return {
         poolId: hit.id,
@@ -223,7 +225,7 @@ const raydiumCpmm = {
   },
   async buildDeposit(ctx, pool, owner, amountA, amountB) {
     const { web3 } = ctx;
-    const { Raydium } = require('@raydium-io/raydium-sdk-v2');
+    const { Raydium, Percent } = require('@raydium-io/raydium-sdk-v2');
     const BN = require('bn.js');
     const raydium = await Raydium.load({
       connection: ctx.conn,
@@ -236,7 +238,7 @@ const raydiumCpmm = {
       poolInfo, poolKeys,
       inputAmount: new BN(String(amountA)),
       baseIn: true,
-      slippage: 0.005,
+      slippage: new Percent(1, 100),
       txVersion: 0,
     });
     const tx = res.transaction || (res.builder && (await res.builder.build()).transaction);
@@ -251,7 +253,7 @@ const raydiumCpmm = {
   },
   async buildWithdraw(ctx, pool, owner, lpAmount) {
     const { web3 } = ctx;
-    const { Raydium } = require('@raydium-io/raydium-sdk-v2');
+    const { Raydium, Percent } = require('@raydium-io/raydium-sdk-v2');
     const BN = require('bn.js');
     const raydium = await Raydium.load({
       connection: ctx.conn,
@@ -263,7 +265,7 @@ const raydiumCpmm = {
     const res = await raydium.cpmm.withdrawLiquidity({
       poolInfo, poolKeys,
       lpAmount: new BN(String(lpAmount)),
-      slippage: 0.005,
+      slippage: new Percent(1, 100),
       txVersion: 0,
     });
     const instructions = res.instructions ||
@@ -292,7 +294,7 @@ const raydiumV4 = {
   },
   async buildDeposit(ctx, pool, owner, amountA, amountB) {
     const { web3 } = ctx;
-    const { Raydium } = require('@raydium-io/raydium-sdk-v2');
+    const { Raydium, Percent } = require('@raydium-io/raydium-sdk-v2');
     const BN = require('bn.js');
     const raydium = await Raydium.load({ connection: ctx.conn, owner: new web3.PublicKey(owner), cluster: 'mainnet', disableLoadToken: true });
     const { poolInfo, poolKeys } = await raydium.liquidity.getPoolInfoFromRpc({ poolId: pool.poolId });
@@ -309,7 +311,7 @@ const raydiumV4 = {
   },
   async buildWithdraw(ctx, pool, owner, lpAmount) {
     const { web3 } = ctx;
-    const { Raydium } = require('@raydium-io/raydium-sdk-v2');
+    const { Raydium, Percent } = require('@raydium-io/raydium-sdk-v2');
     const BN = require('bn.js');
     const raydium = await Raydium.load({ connection: ctx.conn, owner: new web3.PublicKey(owner), cluster: 'mainnet', disableLoadToken: true });
     const { poolInfo, poolKeys } = await raydium.liquidity.getPoolInfoFromRpc({ poolId: pool.poolId });
