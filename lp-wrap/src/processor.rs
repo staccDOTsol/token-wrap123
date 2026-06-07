@@ -138,6 +138,7 @@ pub fn process_create_pair_mint(
     uri: String,
 ) -> ProgramResult {
     let account_info_iter = &mut accounts.iter();
+    let creator_account = next_account_info(account_info_iter)?;
     let wrapped_mint_account = next_account_info(account_info_iter)?;
     let pair_config_account = next_account_info(account_info_iter)?;
     let wrapped_mint_authority_account = next_account_info(account_info_iter)?;
@@ -145,6 +146,11 @@ pub fn process_create_pair_mint(
     let mint_b_account = next_account_info(account_info_iter)?;
     let _system_program = next_account_info(account_info_iter)?;
     let wrapped_token_program = next_account_info(account_info_iter)?;
+
+    // The creator must sign so it can be recorded as a fee recipient.
+    if !creator_account.is_signer {
+        return Err(ProgramError::MissingRequiredSignature);
+    }
 
     // Metadata requires Token-2022.
     if *wrapped_token_program.key != spl_token_2022::id() {
@@ -305,9 +311,79 @@ pub fn process_create_pair_mint(
     config.mint_a = mint_a;
     config.mint_b = mint_b;
     config.wrapped_token_program = *wrapped_token_program.key;
+    config.creator = *creator_account.key;
     config.share_decimals = decimals;
     config.lp_mint_count = 0;
 
+    Ok(())
+}
+
+/// Mint `amount` wrapped shares to `dest`, signed by the mint authority PDA.
+fn mint_shares<'a>(
+    token_program: &Pubkey,
+    wrapped_mint: &AccountInfo<'a>,
+    dest: &AccountInfo<'a>,
+    authority: &AccountInfo<'a>,
+    signer_seeds: &[&[u8]],
+    amount: u64,
+) -> ProgramResult {
+    invoke_signed(
+        &spl_token_2022::instruction::mint_to(
+            token_program,
+            wrapped_mint.key,
+            dest.key,
+            authority.key,
+            &[],
+            amount,
+        )?,
+        &[wrapped_mint.clone(), dest.clone(), authority.clone()],
+        &[signer_seeds],
+    )
+}
+
+/// Transfer `amount` wrapped shares from `source` to `dest` (authority signs).
+fn transfer_shares<'a>(
+    token_program: &Pubkey,
+    source: &AccountInfo<'a>,
+    wrapped_mint: &AccountInfo<'a>,
+    dest: &AccountInfo<'a>,
+    authority: &AccountInfo<'a>,
+    decimals: u8,
+    amount: u64,
+) -> ProgramResult {
+    invoke(
+        &spl_token_2022::instruction::transfer_checked(
+            token_program,
+            source.key,
+            wrapped_mint.key,
+            dest.key,
+            authority.key,
+            &[],
+            amount,
+            decimals,
+        )?,
+        &[
+            source.clone(),
+            wrapped_mint.clone(),
+            dest.clone(),
+            authority.clone(),
+        ],
+    )
+}
+
+/// Verify a fee-recipient share account is the expected ATA of `owner` for the
+/// wrapped (Token-2022) mint.
+fn verify_fee_account(
+    account: &AccountInfo,
+    owner: &Pubkey,
+    wrapped_mint: &Pubkey,
+    err: LpWrapError,
+) -> Result<(), ProgramError> {
+    let expected =
+        get_associated_token_address_with_program_id(owner, wrapped_mint, &spl_token_2022::id());
+    if *account.key != expected {
+        return Err(err.into());
+    }
     Ok(())
 }
 
@@ -328,9 +404,25 @@ pub fn process_wrap(program_id: &Pubkey, accounts: &[AccountInfo], amount: u64) 
     let lp_escrow = next_account_info(account_info_iter)?;
     let amm_pool = next_account_info(account_info_iter)?;
     let transfer_authority = next_account_info(account_info_iter)?;
+    let creator_share = next_account_info(account_info_iter)?;
+    let deployer_share = next_account_info(account_info_iter)?;
     let other_escrows = account_info_iter.as_slice();
 
     let config = load_pair_config(program_id, pair_config, wrapped_mint.key)?;
+
+    // Fee recipients must be the correct share ATAs.
+    verify_fee_account(
+        creator_share,
+        &config.creator,
+        wrapped_mint.key,
+        LpWrapError::CreatorAccountMismatch,
+    )?;
+    verify_fee_account(
+        deployer_share,
+        &crate::DEPLOYER,
+        wrapped_mint.key,
+        LpWrapError::DeployerAccountMismatch,
+    )?;
 
     // Verify the wrapped mint PDA derives from the config's pair.
     let expected_mint =
@@ -379,10 +471,12 @@ pub fn process_wrap(program_id: &Pubkey, accounts: &[AccountInfo], amount: u64) 
         to_common_units(amount, lp_decimals, config.share_decimals).ok_or(LpWrapError::Overflow)?;
     let gross_shares =
         shares_on_deposit(deposit_common, supply, reserves).ok_or(LpWrapError::Overflow)?;
-    // 1 bps mint fee: the fee shares are never minted (i.e. minted-then-burned),
-    // so the full deposit backs fewer shares and NAV per share rises.
-    let (_mint_fee, net_shares) = crate::apply_fee(gross_shares);
-    if net_shares == 0 {
+    // 3 bps mint fee in three 1 bps legs: the NAV leg is never minted
+    // (minted-then-burned), and the creator and deployer legs are minted to
+    // their share accounts. The full deposit backs fewer user shares, so NAV
+    // per share still rises from the NAV leg.
+    let fees = crate::compute_fees(gross_shares);
+    if fees.net == 0 {
         return Err(LpWrapError::ZeroSharesMinted.into());
     }
 
@@ -406,32 +500,60 @@ pub fn process_wrap(program_id: &Pubkey, accounts: &[AccountInfo], amount: u64) 
         ],
     )?;
 
-    // Mint shares to the recipient, signed by the mint authority PDA.
+    // Mint shares to the recipient and fee recipients, signed by the authority.
     let authority_bump = [authority_bump];
     let authority_seeds =
         get_wrapped_mint_authority_signer_seeds(wrapped_mint.key, &authority_bump);
-    invoke_signed(
-        &spl_token_2022::instruction::mint_to(
-            wrapped_token_program.key,
-            wrapped_mint.key,
-            recipient_share.key,
-            wrapped_mint_authority.key,
-            &[],
-            net_shares,
-        )?,
-        &[
-            wrapped_mint.clone(),
-            recipient_share.clone(),
-            wrapped_mint_authority.clone(),
-        ],
-        &[&authority_seeds],
+    mint_shares(
+        wrapped_token_program.key,
+        wrapped_mint,
+        recipient_share,
+        wrapped_mint_authority,
+        &authority_seeds,
+        fees.net,
     )?;
+    if fees.creator > 0 {
+        mint_shares(
+            wrapped_token_program.key,
+            wrapped_mint,
+            creator_share,
+            wrapped_mint_authority,
+            &authority_seeds,
+            fees.creator,
+        )?;
+    }
+    if fees.deployer > 0 {
+        mint_shares(
+            wrapped_token_program.key,
+            wrapped_mint,
+            deployer_share,
+            wrapped_mint_authority,
+            &authority_seeds,
+            fees.deployer,
+        )?;
+    }
 
     // Register the LP mint (with its decimals) if it is new.
     let mut config_data = pair_config.try_borrow_mut_data()?;
     let config_mut = bytemuck::try_from_bytes_mut::<PairConfig>(&mut config_data)
         .map_err(|_| ProgramError::InvalidAccountData)?;
     config_mut.register(lp_mint.key, lp_decimals)?;
+
+    // NAV event for off-chain indexing. reserves/supply are pre-deposit; the new
+    // post-deposit state is (reserves + deposit_common, supply + net_shares).
+    msg!(
+        "lp-wrap:wrap mint={} lp_mint={} amount={} reserves_before={} supply_before={} \
+         shares_to_user={} nav_fee={} creator_fee={} deployer_fee={}",
+        wrapped_mint.key,
+        lp_mint.key,
+        amount,
+        reserves,
+        supply,
+        fees.net,
+        fees.nav,
+        fees.creator,
+        fees.deployer,
+    );
 
     Ok(())
 }
@@ -452,9 +574,24 @@ pub fn process_unwrap(program_id: &Pubkey, accounts: &[AccountInfo], shares: u64
     let lp_mint = next_account_info(account_info_iter)?;
     let lp_escrow = next_account_info(account_info_iter)?;
     let burn_authority = next_account_info(account_info_iter)?;
+    let creator_share = next_account_info(account_info_iter)?;
+    let deployer_share = next_account_info(account_info_iter)?;
     let other_escrows = account_info_iter.as_slice();
 
     let config = load_pair_config(program_id, pair_config, wrapped_mint.key)?;
+
+    verify_fee_account(
+        creator_share,
+        &config.creator,
+        wrapped_mint.key,
+        LpWrapError::CreatorAccountMismatch,
+    )?;
+    verify_fee_account(
+        deployer_share,
+        &crate::DEPLOYER,
+        wrapped_mint.key,
+        LpWrapError::DeployerAccountMismatch,
+    )?;
 
     let expected_mint =
         get_wrapped_mint_address(&config.mint_a, &config.mint_b, wrapped_token_program.key);
@@ -496,12 +633,13 @@ pub fn process_unwrap(program_id: &Pubkey, accounts: &[AccountInfo], shares: u64
         .ok_or(LpWrapError::Overflow)?;
 
     let supply = read_mint_supply(wrapped_mint)?;
-    // 1 bps burn fee: the full `shares` are burned from supply, but assets are
-    // paid out only on the post-fee amount. The fee portion's reserves stay in
-    // escrow, lifting NAV per remaining share.
-    let (_burn_fee, effective_shares) = crate::apply_fee(shares);
+    // 3 bps burn fee in three 1 bps legs. Assets are paid only on the net
+    // (post-fee) amount. The NAV leg is burned with no payout (its reserves
+    // stay, lifting NAV); the creator and deployer legs are transferred to them
+    // as shares (still backed) rather than burned.
+    let fees = crate::compute_fees(shares);
     let assets_common =
-        assets_on_redeem_common(effective_shares, supply, reserves).ok_or(LpWrapError::Overflow)?;
+        assets_on_redeem_common(fees.net, supply, reserves).ok_or(LpWrapError::Overflow)?;
     let assets =
         from_common_units(assets_common, lp_decimals, config.share_decimals).ok_or(LpWrapError::Overflow)?;
     if assets == 0 {
@@ -514,7 +652,36 @@ pub fn process_unwrap(program_id: &Pubkey, accounts: &[AccountInfo], shares: u64
         return Err(LpWrapError::InsufficientEscrowLiquidity.into());
     }
 
-    // Burn the shares from the user (user signs).
+    // Move the creator and deployer fee legs out of the user's account as shares
+    // (signed by the same burn authority that owns the source account).
+    if fees.creator > 0 {
+        transfer_shares(
+            wrapped_token_program.key,
+            source_share,
+            wrapped_mint,
+            creator_share,
+            burn_authority,
+            config.share_decimals,
+            fees.creator,
+        )?;
+    }
+    if fees.deployer > 0 {
+        transfer_shares(
+            wrapped_token_program.key,
+            source_share,
+            wrapped_mint,
+            deployer_share,
+            burn_authority,
+            config.share_decimals,
+            fees.deployer,
+        )?;
+    }
+
+    // Burn the remainder (NAV leg + net) from the user (user signs).
+    let burn_amount = shares
+        .checked_sub(fees.creator)
+        .and_then(|v| v.checked_sub(fees.deployer))
+        .ok_or(LpWrapError::Overflow)?;
     invoke(
         &spl_token_2022::instruction::burn(
             wrapped_token_program.key,
@@ -522,7 +689,7 @@ pub fn process_unwrap(program_id: &Pubkey, accounts: &[AccountInfo], shares: u64
             wrapped_mint.key,
             burn_authority.key,
             &[],
-            shares,
+            burn_amount,
         )?,
         &[
             source_share.clone(),
@@ -554,6 +721,22 @@ pub fn process_unwrap(program_id: &Pubkey, accounts: &[AccountInfo], shares: u64
         ],
         &[&authority_seeds],
     )?;
+
+    // NAV event for off-chain indexing. reserves/supply are pre-burn; the new
+    // post-burn state is (reserves - assets_common, supply - shares).
+    msg!(
+        "lp-wrap:unwrap mint={} lp_mint={} shares={} nav_fee={} creator_fee={} deployer_fee={} \
+         assets_out={} reserves_before={} supply_before={}",
+        wrapped_mint.key,
+        lp_mint.key,
+        shares,
+        fees.nav,
+        fees.creator,
+        fees.deployer,
+        assets,
+        reserves,
+        supply,
+    );
 
     Ok(())
 }

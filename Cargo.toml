@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "clients/cli",
+    "clients/lp-wrap-cli",
     "lp-wrap",
     "program",
     "program/test-metadata-owner",

@@ -10473,6 +10473,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "spl-lp-wrap-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytemuck",
+ "clap 3.2.25",
+ "serde_json",
+ "solana-account",
+ "solana-client",
+ "solana-commitment-config",
+ "solana-instruction",
+ "solana-keypair",
+ "solana-program-pack",
+ "solana-pubkey 4.2.0",
+ "solana-signer",
+ "solana-system-interface 3.0.0",
+ "solana-transaction",
+ "spl-associated-token-account-interface",
+ "spl-lp-wrap",
+ "spl-pod",
+ "spl-token",
+ "spl-token-2022",
+ "spl-token-metadata-interface",
+ "tokio",
+]
+
+[[package]]
 name = "spl-memo-interface"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

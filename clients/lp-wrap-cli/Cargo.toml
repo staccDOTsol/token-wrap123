@@ -1,0 +1,35 @@
+[package]
+name = "spl-lp-wrap-cli"
+version = "0.1.0"
+description = "Command-line utility for the SPL LP Wrap program"
+authors = { workspace = true }
+repository = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
+
+[dependencies]
+anyhow = { workspace = true }
+bytemuck = { workspace = true }
+clap = { workspace = true }
+serde_json = { workspace = true }
+solana-account = { workspace = true }
+solana-client = { workspace = true }
+solana-commitment-config = { workspace = true }
+solana-instruction = { workspace = true }
+solana-keypair = { workspace = true }
+solana-program-pack = { workspace = true }
+solana-pubkey = { workspace = true }
+solana-signer = { workspace = true }
+solana-system-interface = { workspace = true }
+solana-transaction = { workspace = true }
+spl-associated-token-account-interface = { workspace = true }
+spl-lp-wrap = { path = "../../lp-wrap", features = ["no-entrypoint"] }
+spl-token = { workspace = true }
+spl-token-2022 = { workspace = true }
+spl-token-metadata-interface = { workspace = true }
+spl-pod = { workspace = true }
+tokio = { workspace = true }
+
+[[bin]]
+name = "spl-lp-wrap"
+path = "src/main.rs"

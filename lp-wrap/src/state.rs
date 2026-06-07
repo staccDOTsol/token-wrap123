@@ -29,6 +29,8 @@ pub struct PairConfig {
     pub mint_b: Pubkey,
     /// Token program of the wrapped share mint.
     pub wrapped_token_program: Pubkey,
+    /// The pair creator, who receives one fee leg on every mint and burn.
+    pub creator: Pubkey,
     /// Number of populated entries in `lp_mints` / `lp_decimals`.
     pub lp_mint_count: u64,
     /// Registry of LP mints wrapped into this pair (first `lp_mint_count` valid).
@@ -92,10 +94,10 @@ mod tests {
 
     #[test]
     fn len_has_no_padding() {
-        // 3 pubkeys + u64 + 8 pubkeys + 8 decimals + 1 + 7 padding
+        // 4 pubkeys + u64 + 8 pubkeys + 8 decimals + 1 + 7 padding
         assert_eq!(
             PairConfig::LEN,
-            32 * 3 + 8 + 32 * MAX_LP_MINTS + MAX_LP_MINTS + 1 + 7
+            32 * 4 + 8 + 32 * MAX_LP_MINTS + MAX_LP_MINTS + 1 + 7
         );
     }
 

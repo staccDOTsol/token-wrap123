@@ -77,13 +77,17 @@ Every wrapped share mint is **SPL Token-2022** and carries:
   name/symbol/uri.
 - **A 1 bps transfer fee** — native Token-2022 `TransferFeeConfig`, with the mint
   authority PDA as the fee-config and withheld-withdraw authority.
-- **A 1 bps mint fee and 1 bps burn fee**, charged in-program:
-  - on `Wrap`, the fee shares are never minted (minted-then-burned), so the full
-    deposit backs fewer shares;
-  - on `Unwrap`, the full share amount is burned but assets are paid only on the
-    post-fee amount, leaving the fee's reserves in escrow.
+- **A 3 bps mint fee and 3 bps burn fee**, charged in-program as three 1 bps legs:
+  - **NAV leg (1 bps)** — on `Wrap` the leg's shares are never minted
+    (minted-then-burned); on `Unwrap` the full share amount is burned but assets
+    are paid only on the post-fee amount. Either way the leg's reserves stay in
+    escrow, raising **NAV per remaining share**.
+  - **Creator leg (1 bps)** — paid as shares to the pair creator (recorded in
+    `PairConfig` at `create-pair-mint`).
+  - **Deployer leg (1 bps)** — paid as shares to the protocol `DEPLOYER`.
 
-  Both fees are effectively burned, raising **NAV per remaining share**.
+  On `Wrap` the creator/deployer legs are minted to their share ATAs; on `Unwrap`
+  they are transferred out of the redeemer's shares (the rest is burned).
 
 ## Instructions
 
@@ -93,9 +97,32 @@ Every wrapped share mint is **SPL Token-2022** and carries:
 - `Wrap { amount }` — deposit an AMM LP token, mint shares.
 - `Unwrap { shares }` — burn shares, withdraw a chosen LP token from its escrow.
 
+## NAV tracking
+
+`Wrap` and `Unwrap` emit a structured `msg!` log (`lp-wrap:wrap …` /
+`lp-wrap:unwrap …`) carrying `reserves_before`, `supply_before`, the fee legs and
+the amounts. An off-chain indexer can subscribe to program logs (or replay
+transactions), reconstruct `NAV = reserves / supply` at each event, and store the
+time series. USD NAV (valuing the underlying `(token_a, token_b)` claims of each
+escrowed LP) is computed off-chain from pool reserves + a price feed — see
+`clients/lp-wrap-cli` (`nav` prints the on-chain spot NAV and per-escrow
+breakdown).
+
+## CLI & e2e
+
+`clients/lp-wrap-cli` (`spl-lp-wrap`) provides `find-pdas`, `create-pair-mint`,
+`wrap`, `unwrap`, and `nav`. `clients/lp-wrap-cli/tests/local_e2e.sh` runs the
+full create → wrap → nav → unwrap flow against a local `solana-test-validator`
+with a fabricated Raydium pool injected.
+
 ## Status
 
-Pure logic (share math, decimal normalization, AMM pool parsing/verification,
-PDA derivation, registry) is covered by unit tests (`cargo test -p spl-lp-wrap`).
-The pool byte-offsets are taken from each AMM's on-chain state definitions and
-should be confirmed against live mainnet pool accounts before deployment.
+- Pure logic (share math, decimal normalization, AMM pool parsing/verification,
+  PDA derivation, fee splitting, registry) is covered by unit tests
+  (`cargo test -p spl-lp-wrap`).
+- Pool byte-offsets were **validated against live mainnet pools** for all four
+  AMMs (Raydium v4 SOL/USDC, Raydium CPMM, PumpSwap, Meteora Dynamic AMM).
+- The program is deployed on **devnet** at
+  `EbmEELwtg3iqHdtNCKcRwZCKmWzGpF11ZTvc9sPxBQJB`, where `create-pair-mint` was
+  exercised end-to-end (a Token-2022 share mint with embedded metadata and the
+  1 bps transfer fee).

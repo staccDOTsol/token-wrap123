@@ -67,6 +67,12 @@ pub enum LpWrapError {
     /// The deposit produced zero shares
     #[error("The deposit produced zero shares")]
     ZeroSharesMinted,
+    /// Creator fee account is not the expected share ATA
+    #[error("Creator fee account is not the expected share ATA")]
+    CreatorAccountMismatch,
+    /// Deployer fee account is not the expected share ATA
+    #[error("Deployer fee account is not the expected share ATA")]
+    DeployerAccountMismatch,
 }
 
 impl From<LpWrapError> for ProgramError {
@@ -102,6 +108,8 @@ impl ToStr for LpWrapError {
             LpWrapError::InsufficientEscrowLiquidity => "Error: InsufficientEscrowLiquidity",
             LpWrapError::WrappedMintNotToken2022 => "Error: WrappedMintNotToken2022",
             LpWrapError::ZeroSharesMinted => "Error: ZeroSharesMinted",
+            LpWrapError::CreatorAccountMismatch => "Error: CreatorAccountMismatch",
+            LpWrapError::DeployerAccountMismatch => "Error: DeployerAccountMismatch",
         }
     }
 }

@@ -16,13 +16,14 @@ pub enum LpWrapInstruction {
     /// PDAs with enough lamports for rent.
     ///
     /// Accounts:
-    /// 0. `[w]` Wrapped share mint to create (PDA)
-    /// 1. `[w]` `PairConfig` account to create (PDA)
-    /// 2. `[]` Wrapped mint authority (PDA), signs the metadata init CPI
-    /// 3. `[]` First underlying mint
-    /// 4. `[]` Second underlying mint
-    /// 5. `[]` System program
-    /// 6. `[]` SPL Token-2022 program
+    /// 0. `[s]` Creator (recorded as a fee recipient)
+    /// 1. `[w]` Wrapped share mint to create (PDA)
+    /// 2. `[w]` `PairConfig` account to create (PDA)
+    /// 3. `[]` Wrapped mint authority (PDA), signs the metadata init CPI
+    /// 4. `[]` First underlying mint
+    /// 5. `[]` Second underlying mint
+    /// 6. `[]` System program
+    /// 7. `[]` SPL Token-2022 program
     CreatePairMint {
         /// Decimals for the wrapped share mint.
         decimals: u8,
@@ -49,7 +50,9 @@ pub enum LpWrapInstruction {
     /// 8. `[w]` LP escrow ATA for this LP mint
     /// 9. `[]` AMM pool account (owned by the AMM program)
     /// 10. `[s]` Transfer authority on the source LP account
-    /// 11. `..` `[w]` Every *other* registered escrow (registry minus this one),
+    /// 11. `[w]` Creator fee share account (ATA of `PairConfig.creator`)
+    /// 12. `[w]` Deployer fee share account (ATA of `DEPLOYER`)
+    /// 13. `..` `[w]` Every *other* registered escrow (registry minus this one),
     ///     used to total reserves
     Wrap {
         /// Amount of LP tokens to deposit.
@@ -70,7 +73,9 @@ pub enum LpWrapInstruction {
     /// 7. `[]` Requested LP mint
     /// 8. `[w]` LP escrow ATA for the requested LP mint
     /// 9. `[s]` Burn authority on the source share account
-    /// 10. `..` `[w]` Every *other* registered escrow (registry minus this one),
+    /// 10. `[w]` Creator fee share account (ATA of `PairConfig.creator`)
+    /// 11. `[w]` Deployer fee share account (ATA of `DEPLOYER`)
+    /// 12. `..` `[w]` Every *other* registered escrow (registry minus this one),
     ///     used to total reserves
     Unwrap {
         /// Amount of wrapped shares to burn.
@@ -160,6 +165,7 @@ impl LpWrapInstruction {
 #[allow(clippy::too_many_arguments)]
 pub fn create_pair_mint(
     program_id: &Pubkey,
+    creator: &Pubkey,
     wrapped_mint: &Pubkey,
     pair_config: &Pubkey,
     wrapped_mint_authority: &Pubkey,
@@ -172,6 +178,7 @@ pub fn create_pair_mint(
     uri: String,
 ) -> Instruction {
     let accounts = vec![
+        AccountMeta::new_readonly(*creator, true),
         AccountMeta::new(*wrapped_mint, false),
         AccountMeta::new(*pair_config, false),
         AccountMeta::new_readonly(*wrapped_mint_authority, false),
@@ -206,6 +213,8 @@ pub fn wrap(
     lp_escrow: &Pubkey,
     amm_pool: &Pubkey,
     transfer_authority: &Pubkey,
+    creator_share_account: &Pubkey,
+    deployer_share_account: &Pubkey,
     other_escrows: &[&Pubkey],
     amount: u64,
 ) -> Instruction {
@@ -221,6 +230,8 @@ pub fn wrap(
         AccountMeta::new(*lp_escrow, false),
         AccountMeta::new_readonly(*amm_pool, false),
         AccountMeta::new_readonly(*transfer_authority, true),
+        AccountMeta::new(*creator_share_account, false),
+        AccountMeta::new(*deployer_share_account, false),
     ];
     for escrow in other_escrows {
         accounts.push(AccountMeta::new(**escrow, false));
@@ -244,6 +255,8 @@ pub fn unwrap(
     lp_mint: &Pubkey,
     lp_escrow: &Pubkey,
     burn_authority: &Pubkey,
+    creator_share_account: &Pubkey,
+    deployer_share_account: &Pubkey,
     other_escrows: &[&Pubkey],
     shares: u64,
 ) -> Instruction {
@@ -258,6 +271,8 @@ pub fn unwrap(
         AccountMeta::new_readonly(*lp_mint, false),
         AccountMeta::new(*lp_escrow, false),
         AccountMeta::new_readonly(*burn_authority, true),
+        AccountMeta::new(*creator_share_account, false),
+        AccountMeta::new(*deployer_share_account, false),
     ];
     for escrow in other_escrows {
         accounts.push(AccountMeta::new(**escrow, false));

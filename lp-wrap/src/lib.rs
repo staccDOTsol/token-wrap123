@@ -35,30 +35,65 @@ use {
     spl_associated_token_account_interface::address::get_associated_token_address_with_program_id,
 };
 
-solana_pubkey::declare_id!("JCacx5xeDKuYW1GLjqwt46MzQqPZp3oPQ9WrGdyq9ppd");
+solana_pubkey::declare_id!("EbmEELwtg3iqHdtNCKcRwZCKmWzGpF11ZTvc9sPxBQJB");
 
 /// Maximum number of distinct LP mints (i.e. source AMM pools) that may be
 /// registered against a single wrapped pair. Three is enough for the three
 /// natively-supported AMMs, the extra room allows multiple pools per AMM.
 pub const MAX_LP_MINTS: usize = 8;
 
-/// Protocol fee rate, in basis points (1 bps = 0.01%). Applied as:
-///   * a Token-2022 transfer fee on the wrapped share mint, and
-///   * a mint fee and a burn fee charged in-program.
-///
-/// The mint and burn fees are effectively burned (never enter, or are removed
-/// from, the share supply without a matching reserve change), so they raise the
-/// vault's net asset value per remaining share.
+/// Each individual fee leg, in basis points (1 bps = 0.01%).
 pub const FEE_BASIS_POINTS: u16 = 1;
 
 /// Basis-point denominator.
 pub const BPS_DENOMINATOR: u128 = 10_000;
 
-/// Split an amount into `(fee, net)` using [`FEE_BASIS_POINTS`]. The fee is
-/// floored, so `fee + net == amount` always holds.
-pub fn apply_fee(amount: u64) -> (u64, u64) {
-    let fee = ((amount as u128) * (FEE_BASIS_POINTS as u128) / BPS_DENOMINATOR) as u64;
-    (fee, amount - fee)
+/// The protocol deployer / treasury that receives one fee leg on every mint and
+/// burn. Fees are paid in wrapped share tokens to this address's share ATA.
+pub const DEPLOYER: Pubkey = solana_pubkey::pubkey!("WzMaL78srutrF6CsxEkWuhMaDF5HZA6jNRaEPengqpb");
+
+/// Fees charged on each mint and on each burn, all denominated in shares.
+///
+/// Three legs of 1 bps each (3 bps total per operation):
+///   * `nav`     — effectively burned (never enters, or is removed from, supply
+///                 without a matching reserve change), raising NAV per share;
+///   * `creator` — paid to the pair creator (recorded in `PairConfig`);
+///   * `deployer`— paid to the protocol [`DEPLOYER`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Fees {
+    /// NAV-accruing leg (burned).
+    pub nav: u64,
+    /// Creator leg.
+    pub creator: u64,
+    /// Deployer leg.
+    pub deployer: u64,
+    /// Amount remaining after all three legs.
+    pub net: u64,
+}
+
+impl Fees {
+    /// Total of all three fee legs.
+    pub fn total(&self) -> u64 {
+        self.nav + self.creator + self.deployer
+    }
+}
+
+fn one_bps(amount: u64) -> u64 {
+    ((amount as u128) * (FEE_BASIS_POINTS as u128) / BPS_DENOMINATOR) as u64
+}
+
+/// Split `amount` (in shares) into the three 1 bps fee legs plus the net. Each
+/// leg is floored independently; `nav + creator + deployer + net == amount`.
+pub fn compute_fees(amount: u64) -> Fees {
+    let leg = one_bps(amount);
+    // Three equal legs; net absorbs the flooring remainder.
+    let total = leg.saturating_mul(3).min(amount);
+    Fees {
+        nav: leg,
+        creator: leg,
+        deployer: leg,
+        net: amount - total,
+    }
 }
 
 const WRAPPED_MINT_SEED: &[u8] = br"lp_mint";
@@ -308,15 +343,18 @@ mod tests {
     }
 
     #[test]
-    fn fee_is_one_bps_and_conserves_total() {
-        let (fee, net) = apply_fee(1_000_000);
-        assert_eq!(fee, 100); // 1 bps of 1_000_000
-        assert_eq!(net, 999_900);
-        assert_eq!(fee + net, 1_000_000);
-        // small amounts floor the fee to zero
-        let (fee, net) = apply_fee(9_999);
-        assert_eq!(fee, 0);
-        assert_eq!(net, 9_999);
+    fn fees_are_three_legs_of_one_bps_and_conserve_total() {
+        let f = compute_fees(1_000_000);
+        assert_eq!(f.nav, 100); // 1 bps each
+        assert_eq!(f.creator, 100);
+        assert_eq!(f.deployer, 100);
+        assert_eq!(f.net, 999_700); // minus 3 bps
+        assert_eq!(f.total(), 300);
+        assert_eq!(f.nav + f.creator + f.deployer + f.net, 1_000_000);
+        // small amounts floor every leg to zero
+        let f = compute_fees(9_999);
+        assert_eq!(f.total(), 0);
+        assert_eq!(f.net, 9_999);
     }
 
     #[test]
