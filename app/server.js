@@ -7,7 +7,10 @@
 // degen UI in public/.
 
 const path = require('path');
+const fs = require('fs');
+const crypto = require('crypto');
 const express = require('express');
+const multer = require('multer');
 const { Connection, PublicKey } = require('@solana/web3.js');
 const { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } = require('@solana/spl-token');
 
@@ -172,8 +175,45 @@ async function crank() {
   }
 }
 
+// UGC storage on a Fly volume (no external auth). Falls back to a local dir
+// when /data isn't mounted (dev).
+const DATA_DIR = process.env.DATA_DIR || (fs.existsSync('/data') ? '/data' : path.join(__dirname, 'data'));
+const UP_DIR = path.join(DATA_DIR, 'uploads');
+fs.mkdirSync(UP_DIR, { recursive: true });
+const uploadStore = multer.diskStorage({
+  destination: UP_DIR,
+  filename: (_req, file, cb) => {
+    const ext = (String(file.originalname).match(/\.(png|jpe?g|gif|webp|svg)$/i) || ['.png'])[0].toLowerCase();
+    cb(null, crypto.randomBytes(8).toString('hex') + ext);
+  },
+});
+const upload = multer({
+  storage: uploadStore,
+  limits: { fileSize: 8 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => cb(null, /^image\//.test(file.mimetype)),
+});
+
 const app = express();
+app.set('trust proxy', true);
 app.use(express.json({ limit: '2mb' }));
+
+// Accept an image + name/symbol, persist the image and a Metaplex-standard JSON
+// manifest to the volume, and return the manifest URL to use as the token uri.
+app.post('/api/upload', upload.single('image'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'image file required' });
+  const id = path.parse(req.file.filename).name;
+  const base = process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`;
+  const image = `${base}/u/${req.file.filename}`;
+  const manifest = {
+    name: (req.body.name || 'Wrapped LP').slice(0, 64),
+    symbol: (req.body.symbol || 'wLP').slice(0, 12),
+    description: (req.body.description || 'LP Wrap vault share — one token, every AMM’s LP.').slice(0, 512),
+    image,
+  };
+  fs.writeFileSync(path.join(UP_DIR, id + '.json'), JSON.stringify(manifest));
+  res.json({ uri: `${base}/u/${id}.json`, image, manifest });
+});
+app.use('/u', express.static(UP_DIR, { maxAge: '365d', immutable: true }));
 // Same-origin RPC proxy so the browser hits mainnet (via Helius) without ever
 // seeing the API key.
 app.post('/rpc', async (req, res) => {
@@ -206,7 +246,6 @@ function broadcast() {
 }
 
 // --- SSR landing: inject the current snapshot so the page paints instantly ---
-const fs = require('fs');
 const INDEX = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8');
 app.get('/', (_req, res) => {
   const initial = JSON.stringify({ config: { programId: PROGRAM_ID.toBase58(), cluster: CLUSTER }, pairs: state.pairs, lastUpdate: state.lastUpdate });

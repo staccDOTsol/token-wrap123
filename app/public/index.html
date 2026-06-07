@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>LP Wrap · NAV Engine</title>
+<title>wrapped.bet — one token, every AMM's LP</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
@@ -94,13 +94,37 @@
 </head>
 <body>
 <div class="topbar">
-  <div class="brand"><div class="logo">↻</div> LP&nbsp;Wrap</div>
+  <div class="brand"><div class="logo">↻</div> wrapped<span style="color:var(--green)">.bet</span></div>
   <div style="display:flex;gap:10px;align-items:center">
     <span class="chip" id="cluster">…</span>
     <span class="chip" id="updated">…</span>
+    <button class="btn ghost" id="createBtn">+ Create</button>
     <button class="btn" id="connect">Connect Wallet</button>
   </div>
 </div>
+
+<div class="modal" id="cmodal"><div class="sheet">
+  <span class="x" id="cx">✕</span>
+  <h2>Create a wrapped vault</h2>
+  <p style="color:var(--dim);font-size:13px;margin:.3em 0 1em">Pick the two underlying mints, drop an image &amp; name. The image is pinned to our volume and the metadata is written into a Token-2022 mint.</p>
+  <div style="display:grid;gap:10px">
+    <input id="c-a" placeholder="Mint A (base58)" />
+    <input id="c-b" placeholder="Mint B (base58)" />
+    <div style="display:flex;gap:10px">
+      <input id="c-name" placeholder="Name (e.g. BONK/SOL wLP)" style="flex:2" />
+      <input id="c-sym" placeholder="Symbol" style="flex:1" />
+      <input id="c-dec" type="number" value="9" min="0" max="9" style="width:70px" title="decimals" />
+    </div>
+    <input id="c-img" type="file" accept="image/*" />
+    <button class="btn" id="c-go">Upload &amp; Create Vault</button>
+    <div id="c-status" style="color:var(--dim);font-size:12px"></div>
+  </div>
+</div></div>
+<style>
+  #cmodal input{font-family:inherit;background:var(--card);border:1px solid var(--line2);color:var(--txt);
+    border-radius:10px;padding:11px 13px;font-size:14px;width:100%}
+  #cmodal input:focus{outline:none;border-color:var(--green)}
+</style>
 
 <div class="wrap">
   <div class="hero">
@@ -194,6 +218,10 @@ async function boot(){
   document.getElementById('t-tvl').onclick=()=>setMode('tvl');
   document.getElementById('mx').onclick=()=>document.getElementById('modal').classList.remove('show');
   document.getElementById('modal').onclick=e=>{if(e.target.id==='modal')document.getElementById('modal').classList.remove('show');};
+  document.getElementById('createBtn').onclick=()=>document.getElementById('cmodal').classList.add('show');
+  document.getElementById('cx').onclick=()=>document.getElementById('cmodal').classList.remove('show');
+  document.getElementById('c-go').onclick=createFlow;
+  document.getElementById('cmodal').onclick=e=>{if(e.target.id==='cmodal')document.getElementById('cmodal').classList.remove('show');};
   try{const es=new EventSource('/api/stream');es.onmessage=()=>refresh();}catch(_){}
   refresh(); setInterval(refresh,15000);
 }
@@ -324,6 +352,58 @@ document.getElementById('connect').onclick=async()=>{
   document.getElementById('wallet').textContent='Connected '+wallet.toBase58()+' — your holdings:';
   refresh();
 };
+
+// ---- Create vault (upload UGC -> create-pair-mint) ----
+function configPda2(m){return configPda(m);}
+function packCreate(decimals,name,symbol,uri){
+  const e=new TextEncoder();
+  const segs=[name,symbol,uri].map(s=>{const b=e.encode(s);const l=new Uint8Array(4);new DataView(l.buffer).setUint32(0,b.length,true);return [l,b];}).flat();
+  let n=2;for(const s of segs)n+=s.length;
+  const out=new Uint8Array(n);out[0]=0;out[1]=decimals;let o=2;for(const s of segs){out.set(s,o);o+=s.length;}
+  return out;
+}
+async function createFlow(){
+  if(!wallet){alert('Connect wallet first');return;}
+  const st=document.getElementById('c-status');
+  try{
+    const a=new PublicKey(document.getElementById('c-a').value.trim());
+    const b=new PublicKey(document.getElementById('c-b').value.trim());
+    const name=document.getElementById('c-name').value.trim()||'Wrapped LP';
+    const symbol=document.getElementById('c-sym').value.trim()||'wLP';
+    const decimals=parseInt(document.getElementById('c-dec').value||'9',10);
+    const file=document.getElementById('c-img').files[0];
+    let uri='';
+    if(file){st.textContent='Uploading image…';
+      const fd=new FormData();fd.append('image',file);fd.append('name',name);fd.append('symbol',symbol);
+      const up=await (await fetch('/api/upload',{method:'POST',body:fd})).json();
+      if(up.error)throw new Error(up.error);uri=up.uri;}
+    st.textContent='Building transaction…';
+    const wtp=TOKEN_2022_PROGRAM_ID;
+    const [x,y]=sortPair(a,b);
+    const wm=PublicKey.findProgramAddressSync([enc.encode('lp_mint'),x.toBuffer(),y.toBuffer(),wtp.toBuffer()],PROGRAM)[0];
+    const auth=authPda(wm),cfg=configPda(wm);
+    // pre-fund the PDAs for rent (over-fund; extra lamports stay in the account)
+    const SystemProgram=(await import('https://esm.sh/@solana/web3.js@1.95.3')).SystemProgram;
+    const fundMint=SystemProgram.transfer({fromPubkey:wallet,toPubkey:wm,lamports:20_000_000});
+    const fundCfg=SystemProgram.transfer({fromPubkey:wallet,toPubkey:cfg,lamports:6_000_000});
+    const keys=[
+      {pubkey:wallet,isSigner:true,isWritable:true},
+      {pubkey:wm,isSigner:false,isWritable:true},
+      {pubkey:cfg,isSigner:false,isWritable:true},
+      {pubkey:auth,isSigner:false,isWritable:false},
+      {pubkey:a,isSigner:false,isWritable:false},
+      {pubkey:b,isSigner:false,isWritable:false},
+      {pubkey:new PublicKey('11111111111111111111111111111111'),isSigner:false,isWritable:false},
+      {pubkey:wtp,isSigner:false,isWritable:false},
+    ];
+    const ix=new TransactionInstruction({programId:PROGRAM,keys,data:packCreate(decimals,name,symbol,uri)});
+    const tx=new Transaction().add(fundMint,fundCfg,ix);
+    tx.feePayer=wallet;tx.recentBlockhash=(await conn.getLatestBlockhash()).blockhash;
+    st.textContent='Confirm in wallet…';
+    const s=await window.solana.signAndSendTransaction(tx);
+    st.textContent='Created! '+(s.signature||s);
+  }catch(e){st.textContent='Failed: '+(e.message||e);}
+}
 
 async function wrapFlow(p){
   if(!wallet){alert('Connect wallet first');return;}

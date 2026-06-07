@@ -9,6 +9,12 @@ primary_region = "iad"
   CLUSTER = "mainnet"
   POLL_MS = "20000"
   PROGRAM_ID = "EbmEELwtg3iqHdtNCKcRwZCKmWzGpF11ZTvc9sPxBQJB"
+  PUBLIC_URL = "https://wrapped.bet"
+  DATA_DIR = "/data"
+
+[mounts]
+  source = "data"
+  destination = "/data"
 
 [http_service]
   internal_port = 8080
