@@ -42,6 +42,25 @@ solana_pubkey::declare_id!("JCacx5xeDKuYW1GLjqwt46MzQqPZp3oPQ9WrGdyq9ppd");
 /// natively-supported AMMs, the extra room allows multiple pools per AMM.
 pub const MAX_LP_MINTS: usize = 8;
 
+/// Protocol fee rate, in basis points (1 bps = 0.01%). Applied as:
+///   * a Token-2022 transfer fee on the wrapped share mint, and
+///   * a mint fee and a burn fee charged in-program.
+///
+/// The mint and burn fees are effectively burned (never enter, or are removed
+/// from, the share supply without a matching reserve change), so they raise the
+/// vault's net asset value per remaining share.
+pub const FEE_BASIS_POINTS: u16 = 1;
+
+/// Basis-point denominator.
+pub const BPS_DENOMINATOR: u128 = 10_000;
+
+/// Split an amount into `(fee, net)` using [`FEE_BASIS_POINTS`]. The fee is
+/// floored, so `fee + net == amount` always holds.
+pub fn apply_fee(amount: u64) -> (u64, u64) {
+    let fee = ((amount as u128) * (FEE_BASIS_POINTS as u128) / BPS_DENOMINATOR) as u64;
+    (fee, amount - fee)
+}
+
 const WRAPPED_MINT_SEED: &[u8] = br"lp_mint";
 const WRAPPED_MINT_AUTHORITY_SEED: &[u8] = br"authority";
 const PAIR_CONFIG_SEED: &[u8] = br"config";
@@ -286,6 +305,18 @@ mod tests {
         let deposit = to_common_units(1_000_000, 6, 9).unwrap();
         let supply = u64::try_from(reserves).unwrap();
         assert_eq!(shares_on_deposit(deposit, supply, reserves), Some(1_000_000_000));
+    }
+
+    #[test]
+    fn fee_is_one_bps_and_conserves_total() {
+        let (fee, net) = apply_fee(1_000_000);
+        assert_eq!(fee, 100); // 1 bps of 1_000_000
+        assert_eq!(net, 999_900);
+        assert_eq!(fee + net, 1_000_000);
+        // small amounts floor the fee to zero
+        let (fee, net) = apply_fee(9_999);
+        assert_eq!(fee, 0);
+        assert_eq!(net, 9_999);
     }
 
     #[test]

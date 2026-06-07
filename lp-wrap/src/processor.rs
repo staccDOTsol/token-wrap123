@@ -176,9 +176,11 @@ pub fn process_create_pair_mint(
 
     let rent = Rent::get()?;
 
-    // --- Create the wrapped share mint (Token-2022 + metadata) ---
-    let base_space =
-        ExtensionType::try_calculate_account_len::<Mint>(&[ExtensionType::MetadataPointer])?;
+    // --- Create the wrapped share mint (Token-2022 + transfer fee + metadata) ---
+    let base_space = ExtensionType::try_calculate_account_len::<Mint>(&[
+        ExtensionType::TransferFeeConfig,
+        ExtensionType::MetadataPointer,
+    ])?;
 
     let metadata = TokenMetadata {
         update_authority: OptionalNonZeroPubkey::try_from(Some(authority))?,
@@ -218,7 +220,21 @@ pub fn process_create_pair_mint(
         &[&mint_seeds],
     )?;
 
-    // Metadata pointer must be initialized before the mint itself.
+    // Fixed-length extensions must be initialized before the mint itself.
+    // 1 bps transfer fee, with the mint authority PDA as both the fee-config
+    // and withheld-withdraw authority.
+    invoke(
+        &spl_token_2022::extension::transfer_fee::instruction::initialize_transfer_fee_config(
+            wrapped_token_program.key,
+            wrapped_mint_account.key,
+            Some(&authority),
+            Some(&authority),
+            crate::FEE_BASIS_POINTS,
+            u64::MAX,
+        )?,
+        core::slice::from_ref(wrapped_mint_account),
+    )?;
+    // Metadata pointer points the mint at itself.
     invoke(
         &spl_token_2022::extension::metadata_pointer::instruction::initialize(
             wrapped_token_program.key,
@@ -361,8 +377,12 @@ pub fn process_wrap(program_id: &Pubkey, accounts: &[AccountInfo], amount: u64) 
     let supply = read_mint_supply(wrapped_mint)?;
     let deposit_common =
         to_common_units(amount, lp_decimals, config.share_decimals).ok_or(LpWrapError::Overflow)?;
-    let shares = shares_on_deposit(deposit_common, supply, reserves).ok_or(LpWrapError::Overflow)?;
-    if shares == 0 {
+    let gross_shares =
+        shares_on_deposit(deposit_common, supply, reserves).ok_or(LpWrapError::Overflow)?;
+    // 1 bps mint fee: the fee shares are never minted (i.e. minted-then-burned),
+    // so the full deposit backs fewer shares and NAV per share rises.
+    let (_mint_fee, net_shares) = crate::apply_fee(gross_shares);
+    if net_shares == 0 {
         return Err(LpWrapError::ZeroSharesMinted.into());
     }
 
@@ -397,7 +417,7 @@ pub fn process_wrap(program_id: &Pubkey, accounts: &[AccountInfo], amount: u64) 
             recipient_share.key,
             wrapped_mint_authority.key,
             &[],
-            shares,
+            net_shares,
         )?,
         &[
             wrapped_mint.clone(),
@@ -476,8 +496,12 @@ pub fn process_unwrap(program_id: &Pubkey, accounts: &[AccountInfo], shares: u64
         .ok_or(LpWrapError::Overflow)?;
 
     let supply = read_mint_supply(wrapped_mint)?;
+    // 1 bps burn fee: the full `shares` are burned from supply, but assets are
+    // paid out only on the post-fee amount. The fee portion's reserves stay in
+    // escrow, lifting NAV per remaining share.
+    let (_burn_fee, effective_shares) = crate::apply_fee(shares);
     let assets_common =
-        assets_on_redeem_common(shares, supply, reserves).ok_or(LpWrapError::Overflow)?;
+        assets_on_redeem_common(effective_shares, supply, reserves).ok_or(LpWrapError::Overflow)?;
     let assets =
         from_common_units(assets_common, lp_decimals, config.share_decimals).ok_or(LpWrapError::Overflow)?;
     if assets == 0 {

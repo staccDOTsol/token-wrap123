@@ -18,6 +18,7 @@ Supported AMMs (constant-product, fungible LP):
 | Raydium AMM v4 | `675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8` | `AmmInfo` (packed) |
 | Raydium CPMM | `CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C` | `PoolState` (anchor) |
 | PumpSwap | `pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA` | `Pool` (anchor) |
+| Meteora Dynamic AMM | `Eo7WjKq67rjJQSZxS6z3YkapzY3eMj6Xy8X5EQVn5UaB` | `Pool` (anchor) |
 
 Concentrated-liquidity AMMs (Raydium CLMM, Orca Whirlpools, Meteora DLMM) are
 intentionally unsupported: their positions are NFTs, not fungible LP tokens, so
@@ -66,6 +67,23 @@ tokens are coherent.
 (each one having passed AMM verification). Only registered LP mints count toward
 reserves, so an attacker cannot inflate share value by donating a junk token into
 an authority-owned account.
+
+## The wrapped share token
+
+Every wrapped share mint is **SPL Token-2022** and carries:
+
+- **Metadata in the mint itself** — a `MetadataPointer` pointing at the mint plus
+  an embedded `TokenMetadata` extension populated from caller-supplied
+  name/symbol/uri.
+- **A 1 bps transfer fee** — native Token-2022 `TransferFeeConfig`, with the mint
+  authority PDA as the fee-config and withheld-withdraw authority.
+- **A 1 bps mint fee and 1 bps burn fee**, charged in-program:
+  - on `Wrap`, the fee shares are never minted (minted-then-burned), so the full
+    deposit backs fewer shares;
+  - on `Unwrap`, the full share amount is burned but assets are paid only on the
+    post-fee amount, leaving the fee's reserves in escrow.
+
+  Both fees are effectively burned, raising **NAV per remaining share**.
 
 ## Instructions
 

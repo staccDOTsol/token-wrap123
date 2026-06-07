@@ -22,6 +22,9 @@ pub const RAYDIUM_AMM_V4_PROGRAM_ID: Pubkey = pubkey!("675kPX9MHTjS2zt1qfr1NYHuz
 pub const RAYDIUM_CPMM_PROGRAM_ID: Pubkey = pubkey!("CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C");
 /// PumpSwap AMM (pump.fun's constant-product AMM).
 pub const PUMP_SWAP_PROGRAM_ID: Pubkey = pubkey!("pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA");
+/// Meteora Dynamic AMM (formerly Mercurial), constant-product with fungible LP.
+pub const METEORA_DYNAMIC_AMM_PROGRAM_ID: Pubkey =
+    pubkey!("Eo7WjKq67rjJQSZxS6z3YkapzY3eMj6Xy8X5EQVn5UaB");
 
 // --- Raydium AMM v4 `AmmInfo` packed layout (no discriminator) ---
 const RAYDIUM_V4_COIN_MINT_OFFSET: usize = 400;
@@ -42,6 +45,13 @@ const PUMP_QUOTE_MINT_OFFSET: usize = 75;
 const PUMP_LP_MINT_OFFSET: usize = 107;
 const PUMP_MIN_LEN: usize = PUMP_LP_MINT_OFFSET + 32;
 
+// --- Meteora Dynamic AMM `Pool` (8-byte anchor discriminator) ---
+// disc(8) lp_mint(32) token_a_mint(32) token_b_mint(32) a_vault(32) ...
+const METEORA_LP_MINT_OFFSET: usize = 8;
+const METEORA_TOKEN_A_MINT_OFFSET: usize = 40;
+const METEORA_TOKEN_B_MINT_OFFSET: usize = 72;
+const METEORA_MIN_LEN: usize = METEORA_TOKEN_B_MINT_OFFSET + 32;
+
 /// The supported AMMs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AmmKind {
@@ -51,6 +61,8 @@ pub enum AmmKind {
     RaydiumCpmm,
     /// PumpSwap.
     PumpSwap,
+    /// Meteora Dynamic AMM.
+    MeteoraDynamicAmm,
 }
 
 impl AmmKind {
@@ -60,6 +72,7 @@ impl AmmKind {
             RAYDIUM_AMM_V4_PROGRAM_ID => Some(AmmKind::RaydiumAmmV4),
             RAYDIUM_CPMM_PROGRAM_ID => Some(AmmKind::RaydiumCpmm),
             PUMP_SWAP_PROGRAM_ID => Some(AmmKind::PumpSwap),
+            METEORA_DYNAMIC_AMM_PROGRAM_ID => Some(AmmKind::MeteoraDynamicAmm),
             _ => None,
         }
     }
@@ -107,6 +120,12 @@ pub fn parse_pool(owner: &Pubkey, data: &[u8]) -> Result<PoolInfo, ProgramError>
             PUMP_BASE_MINT_OFFSET,
             PUMP_QUOTE_MINT_OFFSET,
             PUMP_MIN_LEN,
+        ),
+        AmmKind::MeteoraDynamicAmm => (
+            METEORA_LP_MINT_OFFSET,
+            METEORA_TOKEN_A_MINT_OFFSET,
+            METEORA_TOKEN_B_MINT_OFFSET,
+            METEORA_MIN_LEN,
         ),
     };
     if data.len() < min_len {
@@ -210,6 +229,24 @@ mod tests {
         let info = parse_pool(&PUMP_SWAP_PROGRAM_ID, &data).unwrap();
         assert_eq!(info.kind, AmmKind::PumpSwap);
         info.verify(&lp, &base, &quote).unwrap();
+    }
+
+    #[test]
+    fn parses_meteora_dynamic_amm() {
+        let lp = Pubkey::new_from_array([10; 32]);
+        let a = Pubkey::new_from_array([11; 32]);
+        let b = Pubkey::new_from_array([12; 32]);
+        let data = pool_bytes(
+            300,
+            &[
+                (METEORA_LP_MINT_OFFSET, lp),
+                (METEORA_TOKEN_A_MINT_OFFSET, a),
+                (METEORA_TOKEN_B_MINT_OFFSET, b),
+            ],
+        );
+        let info = parse_pool(&METEORA_DYNAMIC_AMM_PROGRAM_ID, &data).unwrap();
+        assert_eq!(info.kind, AmmKind::MeteoraDynamicAmm);
+        info.verify(&lp, &a, &b).unwrap();
     }
 
     #[test]
