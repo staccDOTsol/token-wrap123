@@ -234,11 +234,35 @@ const uploadStore = multer.diskStorage({
 const upload = multer({
   storage: uploadStore,
   limits: { fileSize: 8 * 1024 * 1024 },
-  fileFilter: (_req, file, cb) => cb(null, /^image\//.test(file.mimetype)),
+  // Block SVG (can carry inline JS) and any non-raster image.
+  fileFilter: (_req, file, cb) => cb(null, /^image\/(png|jpe?g|gif|webp)$/.test(file.mimetype)),
 });
 
 const app = express();
 app.set('trust proxy', true);
+app.disable('x-powered-by');
+// Security headers (defense-in-depth alongside output escaping).
+app.use((_req, res, next) => {
+  res.set({
+    'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Referrer-Policy': 'no-referrer',
+    'Permissions-Policy': 'geolocation=(), microphone=(), camera=()',
+    'Content-Security-Policy': [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline' https://esm.sh",
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+      "font-src https://fonts.gstatic.com",
+      "img-src 'self' data: https:",
+      "connect-src 'self' https://esm.sh",
+      "frame-ancestors 'none'",
+      "base-uri 'self'",
+      "object-src 'none'",
+    ].join('; '),
+  });
+  next();
+});
 app.use(express.json({ limit: '2mb' }));
 
 // SOL zap endpoints (lazy-require heavy SDKs inside handlers; boots offline).
@@ -266,12 +290,22 @@ app.post('/api/upload', upload.single('image'), (req, res) => {
 });
 app.use('/u', express.static(UP_DIR, { maxAge: '365d', immutable: true }));
 // Same-origin RPC proxy so the browser hits mainnet (via Helius) without ever
-// seeing the API key.
+// seeing the API key. Only allow a read/submit allowlist (no admin/airdrop/etc).
+const RPC_METHODS = new Set([
+  'getAccountInfo','getMultipleAccounts','getProgramAccounts','getBalance','getTokenAccountBalance',
+  'getTokenAccountsByOwner','getParsedTokenAccountsByOwner','getTokenSupply','getLatestBlockhash',
+  'getSignatureStatuses','getSignatureStatus','sendTransaction','simulateTransaction','getSlot',
+  'getMinimumBalanceForRentExemption','getFeeForMessage','getAsset','getAssetBatch','getTransaction',
+  'isBlockhashValid','getRecentPrioritizationFees','getEpochInfo','getBlockHeight',
+]);
 app.post('/rpc', async (req, res) => {
   try {
+    const body = req.body || {};
+    const method = body.method;
+    if (!method || !RPC_METHODS.has(method)) return res.status(400).json({ error: `method not allowed: ${method}` });
     const r = await fetch(RPC_URL, {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(req.body),
+      body: JSON.stringify(body),
     });
     res.type('application/json').send(await r.text());
   } catch (e) { res.status(502).json({ error: String(e) }); }

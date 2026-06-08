@@ -302,15 +302,18 @@ let CFG={programId:'',cluster:'devnet'}, PROGRAM, RPC, conn, wallet=null;
 const fmt=(x,d=4)=>Number(x).toLocaleString(undefined,{maximumFractionDigits:d});
 const short=s=>s.slice(0,4)+'…'+s.slice(-4);
 const enc=new TextEncoder();
+// HTML-escape any user-supplied string before inserting into innerHTML (XSS).
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+// Only allow http(s) image URLs — blocks javascript:/data: and attribute breakout.
+const escUrl=u=>{const s=String(u||'');return /^https?:\/\//i.test(s)?esc(s):'';};
 
 // deterministic avatar gradient from a base58 string
 function hue(s){let h=0;for(const c of s)h=(h*31+c.charCodeAt(0))%360;return h;}
 function avatar(seed,label){const h=hue(seed);
-  return `<div class="av" style="background:linear-gradient(135deg,hsl(${h} 90% 60%),hsl(${(h+60)%360} 90% 55%))">${label}</div>`;}
-const tlabel=t=>t.symbol||t.name||short(t.mint);
-const tav=t=>t.image
-  ? `<img class="av" style="object-fit:cover" src="${t.image}" alt="${tlabel(t)}"/>`
-  : avatar(t.mint,(t.symbol||t.name||'?').slice(0,3).toUpperCase());
+  return `<div class="av" style="background:linear-gradient(135deg,hsl(${h} 90% 60%),hsl(${(h+60)%360} 90% 55%))">${esc(label)}</div>`;}
+const tlabel=t=>esc(t.symbol||t.name||short(t.mint));
+const tav=t=>{const u=escUrl(t.image);
+  return u?`<img class="av" style="object-fit:cover" src="${u}" alt=""/>`:avatar(t.mint,(t.symbol||t.name||'?').slice(0,3).toUpperCase());};
 function pairLabel(p){
   const d=p.display||{featured:[{mint:p.mintA,symbol:''}],quote:null};
   const f=d.featured;
@@ -320,13 +323,13 @@ function pairLabel(p){
 // falling back to the underlying pair.
 function heroAvatar(p){
   const m=p.meta||{};
-  if(m.image) return `<img class="av" style="object-fit:cover" src="${m.image}" alt="${m.name||''}"/>`;
+  if(escUrl(m.image)) return `<img class="av" style="object-fit:cover" src="${escUrl(m.image)}" alt=""/>`;
   const d=p.display||{featured:[{mint:p.mintA,symbol:''}]};
   return tav(d.featured[0]);
 }
 function headFor(p){
   const m=p.meta||{}, pl=pairLabel(p);
-  const title=m.name||pl, sub=m.name?pl:short(p.wrappedMint);
+  const title=esc(m.name)||pl, sub=m.name?pl:short(p.wrappedMint);
   return `${heroAvatar(p)}<div><div class="nm">${title}</div><div class="sub">${sub}</div></div>`;
 }
 
@@ -455,12 +458,12 @@ window.addEventListener('popstate',route);
 function metaCard(tag,img,fallbackSeed,fallbackLabel,name,sym,mint,desc){
   const cluster=CFG.cluster;
   const link=`https://solscan.io/token/${mint}${cluster==='devnet'?'?cluster=devnet':''}`;
-  const av=img?`<img class="mav" src="${img}" alt=""/>`:avatar(fallbackSeed,fallbackLabel);
+  const av=escUrl(img)?`<img class="mav" src="${escUrl(img)}" alt=""/>`:avatar(fallbackSeed,fallbackLabel);
   return `<div class="meta-card">${av}<div class="mc-body">
-    <div class="mc-tag">${tag}</div>
-    <div class="mc-name">${name||short(mint)}</div>
-    <div class="mc-sym">${sym||''}</div>
-    ${desc?`<div class="mc-desc">${desc}</div>`:''}
+    <div class="mc-tag">${esc(tag)}</div>
+    <div class="mc-name">${esc(name)||short(mint)}</div>
+    <div class="mc-sym">${esc(sym)||''}</div>
+    ${desc?`<div class="mc-desc">${esc(desc)}</div>`:''}
     <a class="mc-mint" href="${link}" target="_blank">${short(mint)} ↗</a></div></div>`;
 }
 async function renderVault(p,scroll){
@@ -468,7 +471,7 @@ async function renderVault(p,scroll){
   const vp=document.getElementById('vaultpage');vp.style.display='block';
   if(scroll)window.scrollTo(0,0);
   const m=p.meta||{}, up=p.navPerShare>1.0000001;
-  const heroImg=m.image?`<img class="vhero-img" src="${m.image}" alt=""/>`
+  const heroImg=escUrl(m.image)?`<img class="vhero-img" src="${escUrl(m.image)}" alt=""/>`
     :`<div class="vhero-img" style="display:grid;place-items:center;background:linear-gradient(135deg,#1fe17c,#9bffcf);color:#06231a;font-weight:800">wLP</div>`;
   // 2–3 metadata blocks: UGC wrapped token (hero) + featured underlyings.
   const ugc=metaCard('WRAPPED · UGC',m.image,p.wrappedMint,'wLP',m.name,m.symbol||'wLP',p.wrappedMint,m.description);
@@ -477,9 +480,9 @@ async function renderVault(p,scroll){
   vp.innerHTML=`
     <button class="btn ghost" id="backBtn" style="margin-bottom:16px">← Vaults</button>
     <div class="vhero">${heroImg}
-      <div><div class="vhero-name">${m.name||pairLabel(p)}</div>
+      <div><div class="vhero-name">${esc(m.name)||pairLabel(p)}</div>
       <div class="vhero-sub">${pairLabel(p)} · ◆ ${p.ammCount} AMM leg${p.ammCount===1?'':'s'} · NAV <b style="color:var(--green)">${p.navPerShare?fmt(p.navPerShare,6):'—'}</b></div>
-      ${m.description?`<div class="vhero-desc">${m.description}</div>`:''}</div></div>
+      ${m.description?`<div class="vhero-desc">${esc(m.description)}</div>`:''}</div></div>
     <div class="mstats" style="margin:18px 0">
       <div class="mstat"><div class="k">Token price (USD)</div><div class="v" style="color:var(--green)">${p.navUsd&&p.navUsd>0?'$'+fmt(p.navUsd,4):(p.navPerShare?fmt(p.navPerShare,6):'—')}</div></div>
       <div class="mstat"><div class="k">Share supply</div><div class="v">${fmt(Number(p.shareSupply)/10**p.shareDecimals,3)}</div></div>
