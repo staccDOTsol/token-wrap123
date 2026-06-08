@@ -449,6 +449,21 @@ pub fn process_wrap(program_id: &Pubkey, accounts: &[AccountInfo], amount: u64) 
     };
     pool.verify(lp_mint.key, &config.mint_a, &config.mint_b)?;
 
+    // Audit: LP token program must be SPL Token / Token-2022 and own the LP mint.
+    if lp_token_program.key != &spl_token::id() && lp_token_program.key != &spl_token_2022::id() {
+        return Err(LpWrapError::InvalidLpTokenProgram.into());
+    }
+    if lp_mint.owner != lp_token_program.key {
+        return Err(LpWrapError::InvalidLpTokenProgram.into());
+    }
+    // Audit (critical): one LP mint per wrapped pair. Different LP mints for the
+    // same pair are NOT equal-value per unit even with aligned decimals, so they
+    // must never be summed as fungible. A new LP mint is only allowed if none is
+    // registered yet.
+    if !config.contains(lp_mint.key) && config.count() >= 1 {
+        return Err(LpWrapError::OneLpPerPair.into());
+    }
+
     let lp_decimals = read_mint_decimals(lp_mint)?;
 
     // Total reserves (common scale) BEFORE this deposit: current escrow + others.
@@ -467,20 +482,9 @@ pub fn process_wrap(program_id: &Pubkey, accounts: &[AccountInfo], amount: u64) 
         .ok_or(LpWrapError::Overflow)?;
 
     let supply = read_mint_supply(wrapped_mint)?;
-    let deposit_common =
-        to_common_units(amount, lp_decimals, config.share_decimals).ok_or(LpWrapError::Overflow)?;
-    let gross_shares =
-        shares_on_deposit(deposit_common, supply, reserves).ok_or(LpWrapError::Overflow)?;
-    // 3 bps mint fee in three 1 bps legs: the NAV leg is never minted
-    // (minted-then-burned), and the creator and deployer legs are minted to
-    // their share accounts. The full deposit backs fewer user shares, so NAV
-    // per share still rises from the NAV leg.
-    let fees = crate::compute_fees(gross_shares);
-    if fees.net == 0 {
-        return Err(LpWrapError::ZeroSharesMinted.into());
-    }
 
-    // Move LP from the user into the escrow.
+    // Move LP into the escrow FIRST, then compute shares on what was ACTUALLY
+    // received (audit: Token-2022 transfer-fee over-mint — never trust `amount`).
     invoke(
         &spl_token_2022::instruction::transfer_checked(
             lp_token_program.key,
@@ -499,6 +503,20 @@ pub fn process_wrap(program_id: &Pubkey, accounts: &[AccountInfo], amount: u64) 
             transfer_authority.clone(),
         ],
     )?;
+    let (_post_owner, _post_mint, after_amount) = read_token_account(lp_escrow)?;
+    let received = after_amount
+        .checked_sub(current_amount)
+        .ok_or(LpWrapError::Overflow)?;
+    let deposit_common =
+        to_common_units(received, lp_decimals, config.share_decimals).ok_or(LpWrapError::Overflow)?;
+    let gross_shares =
+        shares_on_deposit(deposit_common, supply, reserves).ok_or(LpWrapError::Overflow)?;
+    // 3 bps mint fee in three 1 bps legs: the NAV leg is never minted; creator
+    // and deployer legs are minted to their share accounts; NAV per share rises.
+    let fees = crate::compute_fees(gross_shares);
+    if fees.net == 0 {
+        return Err(LpWrapError::ZeroSharesMinted.into());
+    }
 
     // Mint shares to the recipient and fee recipients, signed by the authority.
     let authority_bump = [authority_bump];

@@ -73,6 +73,12 @@ pub enum LpWrapError {
     /// Deployer fee account is not the expected share ATA
     #[error("Deployer fee account is not the expected share ATA")]
     DeployerAccountMismatch,
+    /// LP token program must be SPL Token or Token-2022 and own the LP mint
+    #[error("LP token program must be SPL Token or Token-2022 and own the LP mint")]
+    InvalidLpTokenProgram,
+    /// A wrapped pair may only ever hold one LP mint (no cross-LP mixing)
+    #[error("A wrapped pair may only hold one LP mint")]
+    OneLpPerPair,
 }
 
 impl From<LpWrapError> for ProgramError {
@@ -110,6 +116,8 @@ impl ToStr for LpWrapError {
             LpWrapError::ZeroSharesMinted => "Error: ZeroSharesMinted",
             LpWrapError::CreatorAccountMismatch => "Error: CreatorAccountMismatch",
             LpWrapError::DeployerAccountMismatch => "Error: DeployerAccountMismatch",
+            LpWrapError::InvalidLpTokenProgram => "Error: InvalidLpTokenProgram",
+            LpWrapError::OneLpPerPair => "Error: OneLpPerPair",
         }
     }
 }
