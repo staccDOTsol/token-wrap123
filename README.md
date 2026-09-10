@@ -1,8 +1,8 @@
 # WE ALL EAT — token-wrap fork
 
 New work lives on `codex/we-all-eat-wrap`. See [WE-ALL-EAT.md](./WE-ALL-EAT.md)
-for the permissionless Token-2022 wrapper design, implemented reserve/supply
-accounting, test command, and remaining on-chain integration. **The WE ALL EAT
+for the new Pinocchio program, implemented cook/uncook and fee-harvest instructions,
+compiled SBF tests, and remaining routing/browser integration. **The WE ALL EAT
 factory is not deployed.** The program and IDs documented below are inherited
 upstream code, not a WE ALL EAT deployment.
 
