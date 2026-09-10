@@ -1,4 +1,12 @@
-# SPL Token Wrap Program
+# Pyrodrome — token-wrap fork
+
+New work lives on `codex/pyrodrome-wrap`. See [PYRODROME.md](./PYRODROME.md)
+for the permissionless Token-2022 wrapper design, implemented reserve/supply
+accounting, test command, and remaining on-chain integration. **The Pyrodrome
+factory is not deployed.** The program and IDs documented below are inherited
+upstream code, not a Pyrodrome deployment.
+
+## Upstream SPL Token Wrap Program
 
 [![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/solana-program/token-wrap/main.yml?logo=GitHub)](https://github.com/solana-program/token-wrap/actions/workflows/main.yml)
 [![Crates.io](https://img.shields.io/crates/v/spl-token-wrap-cli)](https://crates.io/crates/spl-token-wrap-cli)
