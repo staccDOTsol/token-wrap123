@@ -1,9 +1,9 @@
 [package]
-name = "pyrodrome-math"
+name = "we-all-eat-math"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
-description = "Checked reserve/supply and fee accounting for Pyrodrome wrappers"
+description = "Checked reserve/supply and fee accounting for WE ALL EAT wrappers"
 
 # Keep the accounting kernel testable independently of the upstream SVM toolchain.
 [workspace]

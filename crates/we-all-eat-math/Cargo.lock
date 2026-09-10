@@ -3,5 +3,5 @@
 version = 4
 
 [[package]]
-name = "pyrodrome-math"
+name = "we-all-eat-math"
 version = "0.1.0"

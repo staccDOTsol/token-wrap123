@@ -1,10 +1,10 @@
-# Pyrodrome — token-wrap fork
+# WE ALL EAT — token-wrap fork
 
-New work lives on `codex/pyrodrome-wrap`. See [PYRODROME.md](./PYRODROME.md)
+New work lives on `codex/we-all-eat-wrap`. See [WE-ALL-EAT.md](./WE-ALL-EAT.md)
 for the permissionless Token-2022 wrapper design, implemented reserve/supply
-accounting, test command, and remaining on-chain integration. **The Pyrodrome
+accounting, test command, and remaining on-chain integration. **The WE ALL EAT
 factory is not deployed.** The program and IDs documented below are inherited
-upstream code, not a Pyrodrome deployment.
+upstream code, not a WE ALL EAT deployment.
 
 ## Upstream SPL Token Wrap Program
 

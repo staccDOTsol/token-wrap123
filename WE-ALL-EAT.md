@@ -1,15 +1,15 @@
-# Pyrodrome wrapper fork
+# WE ALL EAT wrapper fork
 
-Work branch: `codex/pyrodrome-wrap`. This fork starts from current upstream
+Work branch: `codex/we-all-eat-wrap`. This fork starts from current upstream
 `solana-program/token-wrap`. The inherited program/CLI still implement upstream
-behavior. **No Pyrodrome factory is deployed. Do not deploy or present the inherited
-TwRap program ID as Pyrodrome.**
+behavior. **No WE ALL EAT factory is deployed. Do not deploy or present the inherited
+TwRap program ID as WE ALL EAT.**
 
-Implemented first: `crates/pyrodrome-math`, a dependency-free, checked integer
+Implemented first: `crates/we-all-eat-math`, a dependency-free, checked integer
 accounting kernel with executable tests. Run:
 
 ```sh
-cargo test --manifest-path crates/pyrodrome-math/Cargo.toml
+cargo test --manifest-path crates/we-all-eat-math/Cargo.toml
 ```
 
 ## Permissionless factory target
